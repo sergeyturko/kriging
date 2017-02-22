@@ -4,3 +4,7 @@
 *.suo
 *.user
 *.filters
+*.pdb
+*.tlog
+*.obj
+*.lastbuildstate
