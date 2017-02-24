@@ -6,51 +6,68 @@
 class kriging
 {
 public:
-	kriging(float mT = 0.6, int rmf = 1, int rf = 2); // TODO radiuses
+	kriging(size_t radiusMF = 1, float threshMF = 0.6);
 	bool read(char* fname);
+	void show() const;
+	void write() const;
 	bool calcHist();
-	bool setT(uchar t0, uchar t1);
-	virtual bool majorityFilter() = 0;
-	virtual bool treshoold() = 0;
-	virtual bool calcIndicator() = 0;
-protected:
-	virtual void runKernelMF(int r, int c, const cv::Mat tempPopulation) = 0;
-	int Hist[256];
-	float probHist[256];
-	cv::Mat CurrentImages;
-	cv::Mat indicator0, indicator1;
-	int T1, T0;
-	float sd0, sd1;
-	int radiusKernelMF;
-	float majorityTresh;
-	int radiusF;
-	float Covariance[28];
-
-};
-
-class indicator_kriging : public kriging
-{
-public: //protected:
-	bool treshoold() override;
-	bool majorityFilter() override;
-	void runKernelMF(int r, int c, const cv::Mat tempPopulation) override;
+	bool setT(unsigned char t0, unsigned char t1);
 	bool calcIndicator();
+	bool majorityFilter();
+	bool thresholding();
+
+	//virtual bool calcCovariance() = 0;
 	bool calcCovariance();
-	double covariance(std::vector<float> a, float suma, std::vector<float> b, float sumb);
-	void normolize(cv::Mat& x, const cv::Mat a);
-	float cumulative(float x);
 
-	void calcProbability(cv::Mat& prob, const cv::Mat kernel, int T);
-	void calcPrRun();
+protected:
+	unsigned char m_T0;
+	unsigned char m_T1;
 
-	void setPopulation();
-	cv::Mat Population;
-	cv::Mat StartPopulation;
-	cv::Mat x0, x1;
-	cv::Mat Probability0, Probability1;
-	void save(char *fname);
+	cv::Mat m_inputImg;
+	cv::Mat m_outputImg;
+	cv::Mat m_threshold;
+	cv::Mat m_indicator0;
+	cv::Mat m_indicator1;
+	cv::Mat m_cumProbHist;
 
+	size_t m_radiusMF;
+	float m_threshMF;
+
+	long int m_numAllPixels;
+
+	float cumDensFunc(float x) const;
+};
+
+class fixedWindowKriging : public kriging
+{
 
 };
+
+
+
+//class indicator_kriging : public kriging
+//{
+//public: //protected:
+//	bool treshoold() override;
+//	bool majorityFilter() override;
+//	void runKernelMF(int r, int c, const cv::Mat tempPopulation) override;
+//	bool calcIndicator();
+//	bool calcCovariance();
+//	double covariance(std::vector<float> a, float suma, std::vector<float> b, float sumb);
+//	void normolize(cv::Mat& x, const cv::Mat a);
+//	float cumulative(float x);
+//
+//	void calcProbability(cv::Mat& prob, const cv::Mat kernel, int T);
+//	void calcPrRun();
+//
+//	void setPopulation();
+//	cv::Mat Population;
+//	cv::Mat StartPopulation;
+//	cv::Mat x0, x1;
+//	cv::Mat Probability0, Probability1;
+//	void save(char *fname);
+//
+//
+//};
 
 #endif // KGIGING_H
