@@ -1,17 +1,20 @@
 #include <iostream>
 #include "opencv2\opencv.hpp"
 #include "kriging.h"
+#include < limits.h >  //Äëÿ PATH_MAX
+#include < stdio.h >   //Äëÿ printf
+#include <direct.h>
 
 int main()
 {
-	indicator_kriging k;
-	k.read("");
-	k.setT(25, 68);
+	kriging k;
+	k.read("..//images//input//FB_2_1_1__rec3002.png");
 	k.calcHist();
-	k.treshoold();
-	k.calcCovariance();
+	k.setT(117, 119);
+	k.thresholding();
 	k.calcIndicator();
-	//cv::namedWindow("test", 0);
-	cv::waitKey(0);
+	k.majorityFilter();
+
+
 	return 0;
 }

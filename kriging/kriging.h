@@ -26,16 +26,17 @@ protected:
 	cv::Mat m_inputImg;
 	cv::Mat m_outputImg;
 	cv::Mat m_threshold;
+	cv::Mat m_initialPopulation;
 	cv::Mat m_indicator0;
 	cv::Mat m_indicator1;
 	cv::Mat m_cumProbHist;
 
-	size_t m_radiusMF;
+	int m_radiusMF;
 	float m_threshMF;
 
 	long int m_numAllPixels;
-
-	float cumDensFunc(float x) const;
+	float m_sd0;				// standart diviations of the thresholded P0 pupulaton
+	float m_sd1;				// standart diviations of the thresholded P1 pupulaton
 };
 
 class fixedWindowKriging : public kriging

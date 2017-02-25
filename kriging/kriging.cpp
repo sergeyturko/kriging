@@ -1,26 +1,31 @@
 #include "kriging.h"
-#define Population0 0
-#define Population1 150
-#define UnknowPopulation 95
+
+#define Population0 10
+#define Population1 254
+#define UnknowPopulation 125
 
 kriging::kriging(size_t radiusMF, float threshMF) : m_radiusMF(radiusMF), m_threshMF(threshMF)
-{}
+{
+	m_T0 = 0;
+	m_T1 = 0;
+}
 
 bool kriging::read(char* fname)
 {
-	m_inputImg = cv::imread(fname);
+	m_inputImg = cv::imread(fname, CV_LOAD_IMAGE_GRAYSCALE);
 	if (!m_inputImg.data)
 		return false;
-	if (m_inputImg.channels() == 3)
-		cv::cvtColor(m_inputImg, m_inputImg, CV_RGB2GRAY);
-	else
-		return false;
 	m_numAllPixels = m_inputImg.rows * m_inputImg.cols;
+	if (m_numAllPixels < 1)
+		return false;
 	return true;
 }
 
 bool kriging::calcHist()
 {
+	if (!m_inputImg.data)
+		return false;
+
 	int histSize = 256;
 	float range[] = { 0, 256 };
 	const float* histRange = { range };
@@ -29,13 +34,194 @@ bool kriging::calcHist()
 	cv::calcHist(&m_inputImg, 1, 0, cv::Mat(), hist, 1, &histSize, &histRange);
 	m_cumProbHist = cv::Mat(hist.rows, hist.cols, CV_32FC1);
 	float sum = 0.0;
-	for (int i = 0; i < 256; ++i)
+	for (int i = 0; i < m_cumProbHist.rows; ++i)
 	{
 		float prob = (hist.at<float>(i, 0) / m_numAllPixels);
 		m_cumProbHist.at<float>(i, 0) = prob + sum;
 		sum += prob;
+	}	
+	return true;
+}
+
+bool kriging::thresholding()
+{
+	if (!m_inputImg.data || (m_T0 == 0 && m_T1 == 0))
+		return false;
+
+	float mean0 = 0.0;
+	float mean1 = 0.0;
+
+	m_threshold = cv::Mat(m_inputImg.rows, m_inputImg.cols, CV_8UC1);
+	if (!m_threshold.data)
+		return false;
+
+	unsigned char* ptr_inputImg = m_inputImg.data;
+	unsigned char* ptr_threshold = m_threshold.data;
+	for (int i = 0; i < m_numAllPixels; ++i)
+	{
+		if (m_T0 > *ptr_inputImg)
+		{
+			*ptr_threshold++ = Population0;
+			++mean0;
+		}
+		else if (m_T1 < *ptr_inputImg)
+		{
+			*ptr_threshold++ = Population1;
+			++mean1;
+		}
+		else 
+			*ptr_threshold++ = UnknowPopulation;
+		++ptr_inputImg;
 	}
+
+	int count0 = mean0;
+	int count1 = mean1;
+	mean0 = mean0 / m_numAllPixels;
+	mean1 = mean1 / m_numAllPixels;
+	m_sd0 = std::sqrtf((((1.0 - mean0) * (1.0 - mean0)) * count0) / m_numAllPixels);
+	m_sd1 = std::sqrtf((((1.0 - mean1) * (1.0 - mean1)) * count1) / m_numAllPixels);
+
+	m_threshold.copyTo(m_initialPopulation);
+	//cv::threshold(m_inputImg, m_threshold, m_T0, 0, CV_THRESH_TOZERO);
+	//cv::threshold(m_threshold, m_threshold, m_T1, 0, CV_THRESH_TRUNC);
+	return true;
+}
+
+bool kriging::calcIndicator()
+{
+	if (!m_inputImg.data)
+		return false;
+
+	float sl0 = 0;
+	float sr1 = 0;
+	float x = (m_sd0 * m_T1 + m_sd1 * m_T0) / (m_sd0 + m_sd1);
+	float sr0 = x - m_T0;
+	float sl1 = m_T1 - x;
 	
+	float Tsl0 = m_T0 - sl0;
+	float Tsr0 = m_T0 + sr0;
+	float Tsl1 = m_T1 - sl1;
+	float Tsr1 = m_T1 + sr1;
+
+	m_indicator0.create(m_inputImg.rows, m_inputImg.cols, CV_32FC1);
+	m_indicator1.create(m_inputImg.rows, m_inputImg.cols, CV_32FC1);
+	if (!m_indicator0.data || !m_indicator1.data)
+		return false;
+
+	for (int row = 0; row < m_inputImg.rows; ++row)
+	{
+		for (int col = 0; col < m_inputImg.cols; ++col)
+		{
+			//if x < T0: ind0 = 1.0
+			if (m_inputImg.at<uchar>(row, col) < Tsl0)
+				m_indicator0.at<float>(row, col) = 1.0;
+			else if (m_inputImg.at<uchar>(row, col) > Tsr0)
+				m_indicator0.at<float>(row, col) = 0.0;
+			else
+			{
+				float temp = m_cumProbHist.at<float>(Tsr0, 0);
+				m_indicator0.at<float>(row, col) = 
+					(temp - m_cumProbHist.at<float>(m_inputImg.at<uchar>(row, col), 0)) / (temp - m_cumProbHist.at<float>(Tsl0, 0));
+			}
+			// if x < T1: ind1 = 1.0
+			if (m_inputImg.at<uchar>(row, col) < Tsl1)
+				m_indicator1.at<float>(row, col) = 1.0;
+			else if (m_inputImg.at<uchar>(row, col) > Tsr1)
+				m_indicator1.at<float>(row, col) = 0.0;
+			else
+			{
+				float temp = m_cumProbHist.at<float>(Tsr1, 0);
+				m_indicator1.at<float>(row, col) = 
+					(temp - m_cumProbHist.at<float>(m_inputImg.at<uchar>(row, col), 0)) / (temp - m_cumProbHist.at<float>(Tsl1, 0));
+			}
+		}
+	}
+	return true;
+}
+
+bool kriging::setT(unsigned char t0, unsigned char t1)
+{
+	m_T1 = std::max(t0, t1);
+	m_T0 = std::min(t0, t1);
+	return true;
+}
+
+bool kriging::majorityFilter()
+{
+	if (!m_threshold.data || !m_initialPopulation.data)
+		return false;
+
+	cv::Mat temp_thresh;
+	m_threshold.copyTo(temp_thresh);
+
+	float majortyThresh = (m_radiusMF * 2. + 1.) * (m_radiusMF * 2. + 1.) * m_threshMF;
+	int skip = m_radiusMF * m_threshold.cols;
+	unsigned char* ptr_initialPopualtion = m_initialPopulation.data + skip;
+	unsigned char* ptr_threshold = m_threshold.data + skip;
+	unsigned char* ptr_temp_thresh = temp_thresh.data + skip;
+	int limit = m_numAllPixels - skip;
+	int k = 0;
+	for (int row = m_radiusMF; row < m_threshold.rows - m_radiusMF; ++row)
+	{
+		for (int j = 0; j < m_radiusMF; ++j)
+		{
+			++ptr_initialPopualtion;
+			++ptr_threshold;
+			++ptr_temp_thresh;
+		}
+		for (int col = m_radiusMF; col < m_threshold.cols - m_radiusMF; ++col)
+		{
+			if (*ptr_initialPopualtion != UnknowPopulation)
+			{
+				int countP0 = 0;
+				int countP1 = 0;
+				for (int rowKernel = -m_radiusMF; rowKernel <= m_radiusMF; ++rowKernel)
+				{
+					skip = rowKernel * m_initialPopulation.cols;
+					for (int colKernel = -m_radiusMF; colKernel <= m_radiusMF; ++colKernel)
+					{
+						unsigned char value = *(ptr_temp_thresh + skip + colKernel);
+						if (value == Population0)
+							++countP0;
+						else if (value == Population1)
+							++countP1;
+					}
+				}
+				unsigned char value = *ptr_temp_thresh;
+				if (countP0 > majortyThresh && value != Population0)
+				{
+					int skip_ind = skip + (row * m_radiusMF) + col;
+					*(m_indicator0.data + skip_ind) = 1.0;
+					*(m_indicator1.data + skip_ind) = 1.0;
+					*ptr_threshold = Population0;
+				}
+				else if (countP1 > majortyThresh && value != Population1)
+				{
+					int skip_ind = skip + (row * m_radiusMF) + col;
+					*(m_indicator0.data + skip_ind) = 0.0;
+					*(m_indicator1.data + skip_ind) = 0.0;
+					*ptr_threshold = Population1;
+				}
+			}
+			++ptr_initialPopualtion;
+			++ptr_threshold;
+			++ptr_temp_thresh;
+		}
+		for (int j = 0; j < m_radiusMF; ++j)
+		{
+			++ptr_initialPopualtion;
+			++ptr_threshold;
+			++ptr_temp_thresh;
+		}
+	}
+
+	cv::imshow("initPop", m_initialPopulation);
+	cv::imshow("threshold", m_threshold);
+	cv::imshow("input", m_inputImg);
+	cv::imshow("ind0", m_indicator0);
+	cv::imshow("ind1", m_indicator1);
+	cv::waitKey(0);
+
 	return true;
 }
 
@@ -55,12 +241,7 @@ bool kriging::calcHist()
 //	return true;
 //}
 
-bool kriging::setT(uchar t0, uchar t1)
-{
-	m_T1 = std::max(t0, t1);
-	m_T0 = std::min(t0, t1);
-	return true;
-}
+
 
 //bool indicator_kriging::treshoold()
 //{
