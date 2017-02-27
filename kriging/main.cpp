@@ -7,13 +7,14 @@
 
 int main()
 {
-	kriging k;
-	k.read("..//images//input//FB_2_1_1__rec3002.png");
+	fixedWindowKriging k;
+	k.read("..//images//input//test.png");
 	k.calcHist();
-	k.setT(117, 119);
+	k.setT(87, 127);
 	k.thresholding();
 	k.calcIndicator();
 	k.majorityFilter();
+	k.calcCovarianceMatrix();
 
 
 	return 0;

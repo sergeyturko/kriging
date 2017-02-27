@@ -6,7 +6,7 @@
 class kriging
 {
 public:
-	kriging(size_t radiusMF = 1, float threshMF = 0.6);
+	kriging(int radiusMF = 1, float threshMF = 0.6);
 	bool read(char* fname);
 	void show() const;
 	void write() const;
@@ -16,8 +16,7 @@ public:
 	bool majorityFilter();
 	bool thresholding();
 
-	//virtual bool calcCovariance() = 0;
-	bool calcCovariance();
+	virtual bool calcCovarianceMatrix() = 0;
 
 protected:
 	unsigned char m_T0;
@@ -41,7 +40,15 @@ protected:
 
 class fixedWindowKriging : public kriging
 {
+public:
+	std::vector<std::pair<int, int>> m_krigingKernelIndex; // pair(row, col)
+	int m_radiusKrigng;
 
+	fixedWindowKriging(int radiusKriging = 3, int radiusMF = 1, float threshMF = 0.6);
+	bool calcCovarianceMatrix() override;
+
+private: 
+	void setKernelIndexArray();
 };
 
 

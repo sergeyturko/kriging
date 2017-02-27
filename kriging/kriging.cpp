@@ -4,7 +4,7 @@
 #define Population1 254
 #define UnknowPopulation 125
 
-kriging::kriging(size_t radiusMF, float threshMF) : m_radiusMF(radiusMF), m_threshMF(threshMF)
+kriging::kriging(int radiusMF, float threshMF) : m_radiusMF(radiusMF), m_threshMF(threshMF)
 {
 	m_T0 = 0;
 	m_T1 = 0;
@@ -15,7 +15,7 @@ bool kriging::read(char* fname)
 	m_inputImg = cv::imread(fname, CV_LOAD_IMAGE_GRAYSCALE);
 	if (!m_inputImg.data)
 		return false;
-	m_numAllPixels = m_inputImg.rows * m_inputImg.cols;
+	m_numAllPixels = m_inputImg.total();
 	if (m_numAllPixels < 1)
 		return false;
 	return true;
@@ -220,186 +220,72 @@ bool kriging::majorityFilter()
 	cv::imshow("input", m_inputImg);
 	cv::imshow("ind0", m_indicator0);
 	cv::imshow("ind1", m_indicator1);
+	//cv::waitKey(0);
+
+	return true;
+}
+
+fixedWindowKriging::fixedWindowKriging(int radiusKriging, int radiusMF, float threshMF) 
+: kriging(radiusMF, threshMF), m_radiusKrigng(radiusKriging) {}
+
+void fixedWindowKriging::setKernelIndexArray()
+{
+	int col = 0;
+	for (int row = 0; row < m_radiusKrigng;)
+	{
+		if (row == col  && row != 0)
+		{
+			col = 0;
+			++row;
+		}
+		else if (row > col)
+			++col;
+		else
+			++row;
+
+		if (col == 0 || col == row)
+		{
+			m_krigingKernelIndex.push_back(std::pair<int, int>(-row, col));			// 1		1			  1 x 2
+			m_krigingKernelIndex.push_back(std::pair<int, int>(col, row));			// 2	  4 x 2		or	  x x x
+			m_krigingKernelIndex.push_back(std::pair<int, int>(row, -col));			// 3		3			  4 x 3
+			m_krigingKernelIndex.push_back(std::pair<int, int>(-col, -row));		// 4
+		}
+		else
+		{
+			m_krigingKernelIndex.push_back(std::pair<int, int>(-row, col));			// 1
+			m_krigingKernelIndex.push_back(std::pair<int, int>(-col, row));			// 2			   8 x 1
+			m_krigingKernelIndex.push_back(std::pair<int, int>(col, row));			// 3			 7 x x x 2
+			m_krigingKernelIndex.push_back(std::pair<int, int>(row, col));			// 4			 x x x x x
+			m_krigingKernelIndex.push_back(std::pair<int, int>(row, -col));			// 5			 6 x x x 3
+			m_krigingKernelIndex.push_back(std::pair<int, int>(col, -row));			// 6			   5 x 4
+			m_krigingKernelIndex.push_back(std::pair<int, int>(-col, -row));		// 7
+			m_krigingKernelIndex.push_back(std::pair<int, int>(-row, -col));		// 8
+		}
+	}
+}
+
+bool fixedWindowKriging::calcCovarianceMatrix()
+{
+	if (!m_indicator0.data || !m_indicator1.data)
+		return false;
+
+	setKernelIndexArray();
+
+	cv::copyMakeBorder(m_indicator0, m_indicator0, m_radiusKrigng, m_radiusKrigng, m_radiusKrigng, m_radiusKrigng, cv::BORDER_CONSTANT, cv::Scalar(0.5));
+	cv::copyMakeBorder(m_indicator1, m_indicator1, m_radiusKrigng, m_radiusKrigng, m_radiusKrigng, m_radiusKrigng, cv::BORDER_CONSTANT, cv::Scalar(0.5));
+
+	std::vector<int> a;
+	cv::calcCovarMatrix(a, m_indicator0, m_indicator1, CV_COVAR_NORMAL)
+
+
+	cv::imshow("test", m_indicator0);
 	cv::waitKey(0);
 
 	return true;
 }
 
-//bool kriging::calcHist()
-//{
-//	if (CurrentImages.type() != CV_8UC1)
-//		return false;
-//	memset(Hist, 0, sizeof(int)* 256);
-//	for (int r = 0; r < CurrentImages.rows; ++r)
-//	{
-//		for (int c = 0; c < CurrentImages.cols; ++c)
-//			++Hist[CurrentImages.at<uchar>(r, c)];
-//	}
-//	float N = CurrentImages.cols * CurrentImages.rows * 1.0;
-//	for (int i = 0; i < 256; ++i)
-//		probHist[i] = Hist[i] / N;
-//	return true;
-//}
 
 
-
-//bool indicator_kriging::treshoold()
-//{
-//	if (CurrentImages.rows == 0)
-//		return false;
-//
-//	float mean0 = 0;
-//	float mean1 = 0;
-//
-//	Population = cv::Mat(CurrentImages.rows, CurrentImages.cols, CurrentImages.type());
-//
-//	for (int i = 0; i < CurrentImages.rows; ++i)
-//	{
-//		for (int j = 0; j < CurrentImages.cols; ++j)
-//		{
-//			if (CurrentImages.at<uchar>(i, j) < T0 && CurrentImages.at<uchar>(i, j) < T1)
-//			{
-//				Population.at<uchar>(i, j) = Population0;
-//				++mean0;
-//			}
-//			else if (CurrentImages.at<uchar>(i, j) > T1)
-//			{
-//				Population.at<uchar>(i, j) = Population1;
-//				++mean1;
-//			}
-//			else
-//				Population.at<uchar>(i, j) = UnknowPopulation;
-//		}
-//	}
-//
-//	float pix = CurrentImages.rows * CurrentImages.cols * 1.0;
-//	int count0 = mean0;
-//	int count1 = mean1;
-//	mean0 = mean0 / pix;
-//	mean1 = mean1 / pix;
-//	sd0 = std::sqrtf(((((1.0 - mean0) * (1.0 - mean0)) * count0) / pix) * (pix / (pix - 1)));
-//	sd1 = std::sqrtf(((((1.0 - mean1) * (1.0 - mean1)) * count1) / pix) * (pix / (pix - 1)));
-//	Population.copyTo(StartPopulation);
-//
-//	return true;
-//}
-//
-//bool indicator_kriging::majorityFilter()
-//{
-//	cv::Mat tmp;
-//	Population.copyTo(tmp);
-//	for (int i = 0; i < CurrentImages.rows; ++i)
-//	{
-//		for (int j = 0; j < CurrentImages.cols; ++j)
-//		{
-//			if (StartPopulation.at<uchar>(i, j) == Population0 || StartPopulation.at<uchar>(i, j) == Population1)
-//				runKernelMF(i, j, tmp);
-//		}
-//	}
-//
-//	cv::imshow("img", CurrentImages);
-//	cv::imshow("tresh", tmp);
-//	cv::waitKey(0);
-//	cv::imshow("MF", Population);
-//	cv::imshow("ind0", indicator0);
-//	cv::imshow("ind1", indicator1);
-//	//cv::waitKey(0);
-//
-//	return true;
-//}
-//
-//void indicator_kriging::runKernelMF(int r, int c, const cv::Mat tempPopulation)
-//{
-//	int countPixWin = 0;
-//	int value = StartPopulation.at<uchar>(r, c);
-//
-//	int P0 = 0;
-//	int P1 = 0;
-//
-//	for (int i = r - radiusKernelMF; i <= r + radiusKernelMF; ++i)
-//	{
-//		for (int j = c - radiusKernelMF; j <= c + radiusKernelMF; ++j)
-//		{
-//			if (i >= 0 && j >= 0 && i < Population.rows && j < Population.cols)
-//			{
-//				++countPixWin;
-//				if (tempPopulation.at<uchar>(i, j) == Population0) // TODO it must run only for start population, but on second call its not
-//					++P0;
-//				else //if (StartPopulation.at<uchar>(i, j) == Population1)
-//					++P1;
-//			}
-//		}
-//	}
-//
-//	if (1.0*P0 / countPixWin > majorityTresh && value == Population1)
-//	{
-//		//indicator0.at<float>(r, c) = 1.0;
-//		//indicator1.at<float>(r, c) = 1.0;
-//		Population.at<uchar>(r, c) = Population0;
-//	}
-//	else if (1.0*P1 / countPixWin > majorityTresh && value == Population0)
-//	{
-//		//indicator0.at<float>(r, c) = 0.0;
-//		//indicator1.at<float>(r, c) = 0.0;
-//		Population.at<uchar>(r, c) = Population1;
-//	}
-//}
-//
-//bool indicator_kriging::calcIndicator()
-//{
-//	float sl0 = 0;
-//	float sr1 = 0;
-//	//float sr0 = (sd0 * T1 + sd1 * T0) / (sd0 + sd1);
-//	float x = (sd0 * T1 + sd1 * T0) / (sd0 + sd1);
-//	float sr0 = x - T0;
-//	float sl1 = T1 - x;
-//
-//	float Tsl0 = T0 - sl0;
-//	float Tsr0 = T0 + sr0;
-//	float Tsl1 = T1 - sl1;
-//	float Tsr1 = T1 + sr1;
-//
-//	indicator0.create(CurrentImages.rows, CurrentImages.cols, CV_32FC1);
-//	indicator1.create(CurrentImages.rows, CurrentImages.cols, CV_32FC1);
-//	for (int i = 0; i < CurrentImages.rows; ++i)
-//	{
-//		for (int j = 0; j < CurrentImages.cols; ++j)
-//		{
-//			//t0 if x < T: ind = 1
-//			if (CurrentImages.at<uchar>(i, j) < Tsl0)
-//				indicator0.at<float>(i, j) = 1.0;
-//			else if (CurrentImages.at<uchar>(i, j) > Tsr0)
-//				indicator0.at<float>(i, j) = 0.0;
-//			else
-//			{
-//				float tmp = cumulative(Tsr0);
-//				float res = (tmp - cumulative(CurrentImages.at<uchar>(i, j))) / (tmp - cumulative(Tsl0));
-//				res = (res > 1.0) ? 1.0 : res;
-//				indicator0.at<float>(i, j) = (res < 0.0) ? 0.0 : res;
-//			}
-//			//t1
-//			if (CurrentImages.at<uchar>(i, j) < Tsl1)
-//				indicator1.at<float>(i, j) = 1.0;
-//			else if (CurrentImages.at<uchar>(i, j) > Tsr1)
-//				indicator1.at<float>(i, j) = 0.0;
-//			else
-//			{
-//				float tmp = cumulative(Tsr1);
-//				float res = (tmp - cumulative(CurrentImages.at<uchar>(i, j))) / (tmp - cumulative(Tsl1));
-//				res = (res > 1.0) ? 1.0 : res;
-//				indicator1.at<float>(i, j) = (res < 0.0) ? 0.0 : res;
-//			}
-//		}
-//	}
-//	return true;
-//}
-//
-//float indicator_kriging::cumulative(float x)
-//{
-//	int idx = (x + 0.5 > 255) ? 255 : (x + 0.5);
-//	idx = (idx < 0.0) ? 0 : idx;
-//	return probHist[idx];
-//}
 //
 //bool indicator_kriging::calcCovariance()
 //{
