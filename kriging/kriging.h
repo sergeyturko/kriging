@@ -36,6 +36,8 @@ protected:
 	long int m_numAllPixels;
 	float m_sd0;				// standart diviations of the thresholded P0 pupulaton
 	float m_sd1;				// standart diviations of the thresholded P1 pupulaton
+
+	void escapeNegativeWeights(cv::Mat& weightMatrix) const;
 };
 
 class fixedWindowKriging : public kriging
@@ -49,6 +51,8 @@ public:
 
 private: 
 	void setKernelIndexArray();
+	cv::Mat getKrigingSystem(const cv::Mat sequencesMatrix, bool left_right) const; // false - return left matrix; true - return right matrix
+	float covariance(const cv::Mat seq0, const cv::Mat seq1) const;
 };
 
 
