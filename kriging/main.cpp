@@ -8,14 +8,16 @@
 int main()
 {
 	fixedWindowKriging k;
-	k.read("..//images//input//test.png");
+	k.read("..//images//input//FB_2_1_1__rec3002.png");
 	k.calcHist();
-	k.setT(87, 127);
+	k.setT(94, 126);
 	k.thresholding();
 	k.calcIndicator();
 	k.majorityFilter();
 	k.calcCovarianceMatrix();
-
+	k.calcProbability();
+	k.majorityFilter();
+	k.write("test1");
 
 	return 0;
 }

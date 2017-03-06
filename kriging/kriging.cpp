@@ -10,7 +10,7 @@ kriging::kriging(int radiusMF, float threshMF) : m_radiusMF(radiusMF), m_threshM
 	m_T1 = 0;
 }
 
-bool kriging::read(char* fname)
+bool kriging::read(const cv::String& fname)
 {
 	m_inputImg = cv::imread(fname, CV_LOAD_IMAGE_GRAYSCALE);
 	if (!m_inputImg.data)
@@ -20,7 +20,6 @@ bool kriging::read(char* fname)
 		return false;
 	return true;
 }
-
 
 bool kriging::calcHist()
 {
@@ -219,6 +218,63 @@ bool kriging::majorityFilter()
 	return true;
 }
 
+void kriging::escapeNegativeWeights(cv::Mat& weightMatrix, const cv::Mat& krigingSystemRight) const
+{
+	float avgl = 0.0;
+	float avgc = 0.0;
+
+	int system_size = weightMatrix.rows - 1;
+	cv::Mat AvgCov(system_size, 1, CV_32FC1, cv::Scalar(0.0));
+	
+	int countNegativeWeights = 0;
+	for (int row = 0; row < system_size; ++row)
+	{
+		if (weightMatrix.at<float>(row, 0) < 0.0)
+		{
+			avgl += weightMatrix.at<float>(row, 0);
+			avgc += krigingSystemRight.at<float>(row, 0);
+			++countNegativeWeights;
+		}
+	}
+	avgc = avgc / countNegativeWeights;
+	avgl = avgl / countNegativeWeights;
+	
+	float limit_avg_l = std::abs(avgl);
+	float nSum = 0.0;
+	for (int row = 0; row < system_size; ++row)
+	{
+		if (weightMatrix.at<float>(row, 0) < 0.0)
+			weightMatrix.at<float>(row, 0) = 0.0;
+		else if (weightMatrix.at<float>(row, 0) < limit_avg_l && krigingSystemRight.at<float>(row, 0) < avgc)
+			weightMatrix.at<float>(row, 0) = 0.0;
+		nSum += weightMatrix.at<float>(row, 0);
+	}
+	weightMatrix = weightMatrix / nSum;
+}
+
+void fixedWindowKriging::write(const cv::String& imgName)
+{
+	const cv::String path = "..//images//output//" + imgName;
+	cv::String thresh = cv::format("_%i_%i.", m_T0, m_T1);
+	cv::String a = path + "_initial_threshold" + thresh + "png";
+	cv::imwrite(path + "_initial_threshold" + thresh + "png", m_initialPopulation);
+	cv::imwrite(path + "_indicator0" + thresh + "png", m_indicator0);
+	cv::imwrite(path + "_indicator1" + thresh + "png", m_indicator1);
+	cv::imwrite(path + "_probability_population0" + thresh + "png", m_probabilityPopulation0);
+	cv::imwrite(path + "_probability_population1" + thresh + "png", m_probabilityPopulation1);
+	cv::imwrite(path + "_Init" + thresh + "png", m_inputImg);
+	cv::imwrite(path + " _output" + thresh + "png", m_threshold);
+
+	std::ofstream file0;
+	std::ofstream file1;
+	file0.open("..//images//output//" + imgName + "_krigingKernel_population0" + thresh + "txt");
+	file1.open("..//images//output//" + imgName + "_krigingKernel_population1" + thresh + "txt");
+	file0 << m_krigingKernel0;
+	file1 << m_krigingKernel1;
+	file0.close();
+	file1.close();
+}
+
 fixedWindowKriging::fixedWindowKriging(int radiusKriging, int radiusMF, float threshMF) 
 : kriging(radiusMF, threshMF), m_radiusKrigng(radiusKriging) {}
 
@@ -269,6 +325,7 @@ void fixedWindowKriging::setKernelIndexArray()
 		}																						//		 17 18 19 20 21
 	}																							//		 22 23 24 25 26																									//			   27
 	m_krigingKernelIndex.push_back(std::pair<int, int>(0, 0));									//			   27
+	m_numElemUnderWindow = m_krigingKernelIndex.size();
 }
 
 bool fixedWindowKriging::calcCovarianceMatrix()
@@ -278,25 +335,27 @@ bool fixedWindowKriging::calcCovarianceMatrix()
 
 	setKernelIndexArray();
 
-	cv::copyMakeBorder(m_indicator0, m_indicator0, m_radiusKrigng, m_radiusKrigng, m_radiusKrigng, m_radiusKrigng, cv::BORDER_CONSTANT, cv::Scalar(0.5));
-	cv::copyMakeBorder(m_indicator1, m_indicator1, m_radiusKrigng, m_radiusKrigng, m_radiusKrigng, m_radiusKrigng, cv::BORDER_CONSTANT, cv::Scalar(0.5));
+	cv::Mat indicator0;
+	cv::Mat indicator1;
 
-	if ((m_indicator0.rows != m_indicator1.rows) || (m_indicator0.cols != m_indicator1.cols))
+	cv::copyMakeBorder(m_indicator0, indicator0, m_radiusKrigng, m_radiusKrigng, m_radiusKrigng, m_radiusKrigng, cv::BORDER_CONSTANT, cv::Scalar(0.5));
+	cv::copyMakeBorder(m_indicator1, indicator1, m_radiusKrigng, m_radiusKrigng, m_radiusKrigng, m_radiusKrigng, cv::BORDER_CONSTANT, cv::Scalar(0.5));
+
+	if ((indicator0.rows != indicator1.rows) || (indicator0.cols != indicator1.cols))
 		return false;
 
-	int size_seq = m_krigingKernelIndex.size();
-	cv::Mat sequiences0(m_numAllPixels, size_seq, CV_32FC1);
-	cv::Mat sequiences1(m_numAllPixels, size_seq, CV_32FC1);
+	cv::Mat sequiences0(m_numAllPixels, m_numElemUnderWindow, CV_32FC1);
+	cv::Mat sequiences1(m_numAllPixels, m_numElemUnderWindow, CV_32FC1);
 	int counter = 0;
-	for (int row = m_radiusKrigng; row < m_indicator0.rows - m_radiusKrigng; ++row)
+	for (int row = m_radiusKrigng; row < indicator0.rows - m_radiusKrigng; ++row)
 	{
-		for (int col = m_radiusKrigng; col < m_indicator0.cols - m_radiusKrigng; ++col)
+		for (int col = m_radiusKrigng; col < indicator0.cols - m_radiusKrigng; ++col)
 		{
 			int i = 0;
 			for (const auto coord : m_krigingKernelIndex)
 			{
-				sequiences0.at<float>(counter, i) = m_indicator0.at<float>(row + coord.first, col + coord.second);
-				sequiences1.at<float>(counter, i++) = m_indicator1.at<float>(row + coord.first, col + coord.second);
+				sequiences0.at<float>(counter, i) = indicator0.at<float>(row + coord.first, col + coord.second);
+				sequiences1.at<float>(counter, i++) = indicator1.at<float>(row + coord.first, col + coord.second);
 			}
 			++counter;
 		}
@@ -306,7 +365,26 @@ bool fixedWindowKriging::calcCovarianceMatrix()
 	cv::Mat krigingSystemLeft_1 = getKrigingSystem(sequiences1, false);
 	cv::Mat krigingSystemRight_0 = getKrigingSystem(sequiences0, true);
 	cv::Mat krigingSystemRight_1 = getKrigingSystem(sequiences1, true);
-	
+
+	// write system to file
+	cv::String thresh = cv::format("_%i_%i.", m_T0, m_T1);
+	std::ofstream f0, f1;
+	f0.open("..//images//output//krigingSystem_population0" + thresh + "txt");
+	f1.open("..//images//output//krigingSystem_population1" + thresh + "txt");
+	for (int row = 0; row < m_numElemUnderWindow; ++row)
+	{
+		for (int col = 0; col < m_numElemUnderWindow; ++col)
+		{
+			f0 << krigingSystemLeft_0.at<float>(row, col) << " ";
+			f1 << krigingSystemLeft_1.at<float>(row, col) << " ";
+		}
+		f0 << " = " << krigingSystemRight_0.at<float>(row, 0) << std::endl;
+		f1 << " = " << krigingSystemRight_1.at<float>(row, 0) << std::endl;
+	}
+	f0.close();
+	f1.close();
+	////////////////
+
 	cv::Mat solveKrigingSystem_0;
 	cv::Mat solveKrigingSystem_1;
 
@@ -316,58 +394,101 @@ bool fixedWindowKriging::calcCovarianceMatrix()
 	if (!cv::solve(krigingSystemLeft_1, krigingSystemRight_1, solveKrigingSystem_1, cv::DECOMP_SVD))
 		return false;
 
+	escapeNegativeWeights(solveKrigingSystem_0, krigingSystemRight_0);
+	escapeNegativeWeights(solveKrigingSystem_1, krigingSystemRight_1);
 
-
-	cv::imshow("test", m_indicator0);
-	cv::waitKey(0);
+	m_krigingKernel0 = getKrigignKernel(solveKrigingSystem_0);
+	m_krigingKernel1 = getKrigignKernel(solveKrigingSystem_1);
 
 	return true;
 }
+
+cv::Mat fixedWindowKriging::getKrigignKernel(const cv::Mat& weightsMatrix)
+{
+	int kernelSize = 2 * m_radiusKrigng + 1;
+	cv::Mat krigingKernel(kernelSize, kernelSize, CV_32FC1, cv::Scalar(0.0));
+	int size_system = m_numElemUnderWindow - 1;
+	for (int i = 0; i < size_system; ++i)
+		krigingKernel.at<float>(m_krigingKernelIndex[i].first + m_radiusKrigng, m_krigingKernelIndex[i].second + m_radiusKrigng) = weightsMatrix.at<float>(i, 0);
+
+	return krigingKernel;
+}
+
 
 float fixedWindowKriging::covariance(const cv::Mat seq0, const cv::Mat seq1) const
 {
 	return (cv::sum(seq0.mul(seq1 / m_numAllPixels)) - (cv::mean(seq0) * cv::mean(seq1)))[0];
 }
 
-cv::Mat fixedWindowKriging::getKrigingSystem(const cv::Mat sequencesMatrix, bool left_right) const
+cv::Mat fixedWindowKriging::getKrigingSystem(const cv::Mat& sequencesMatrix, bool left_right) const
 {
 	if (!sequencesMatrix.data)
 		return cv::Mat();
 
-	int size_system = m_krigingKernelIndex.size();
-	if (size_system == 0)
+	if (m_krigingKernelIndex.empty())
 		return cv::Mat();
 
+	int system_size = m_numElemUnderWindow - 1;
 	if (left_right)
 	{
-		cv::Mat krigingSystemRight(size_system, 1, CV_32FC1);
-		int ssr = size_system - 1;
-		for (int i = 0; i < ssr / 2; ++i)
+		cv::Mat krigingSystemRight(m_numElemUnderWindow, 1, CV_32FC1);
+		for (int i = 0; i < system_size / 2; ++i)
 		{
-			krigingSystemRight.at<float>(i, 0) = covariance(sequencesMatrix.col(ssr), sequencesMatrix.col(i));
-			krigingSystemRight.at<float>(ssr - 1 - i, 0) = krigingSystemRight.at<float>(i, 0);
+			krigingSystemRight.at<float>(i, 0) = covariance(sequencesMatrix.col(system_size), sequencesMatrix.col(i));
+			krigingSystemRight.at<float>(system_size - 1 - i, 0) = krigingSystemRight.at<float>(i, 0);
 		}
-		krigingSystemRight.at<float>(ssr, 0) = 1.0;
+		krigingSystemRight.at<float>(system_size, 0) = 1.0;
 		return krigingSystemRight;
 	}
 	else
 	{
-		cv::Mat krigingSystemLeft(size_system, size_system, CV_32FC1);
-		for (int row = 0; row < size_system - 1; ++row)
+		cv::Mat krigingSystemLeft(m_numElemUnderWindow, m_numElemUnderWindow, CV_32FC1);
+		for (int row = 0; row < system_size; ++row)
 		{
-			for (int col = row; col < size_system - 1; ++col)
+			for (int col = row; col < system_size; ++col)
 			{
 				krigingSystemLeft.at<float>(row, col) = covariance(sequencesMatrix.col(row), sequencesMatrix.col(col));
 				krigingSystemLeft.at<float>(col, row) = krigingSystemLeft.at<float>(row, col);
 			}
 		}
-		cv::Mat(1, size_system, CV_32FC1, cv::Scalar(1.0)).copyTo(krigingSystemLeft.row(size_system - 1));
-		cv::Mat(size_system, 1, CV_32FC1, cv::Scalar(1.0)).copyTo(krigingSystemLeft.col(size_system - 1));
+		cv::Mat(1, m_numElemUnderWindow, CV_32FC1, cv::Scalar(1.0)).copyTo(krigingSystemLeft.row(system_size));
+		cv::Mat(m_numElemUnderWindow, 1, CV_32FC1, cv::Scalar(1.0)).copyTo(krigingSystemLeft.col(system_size));
 		return krigingSystemLeft;
 	}
 }
 
+bool fixedWindowKriging::calcProbability()
+{
+	if (!m_krigingKernel0.data || !m_krigingKernel1.data)
+		return false;
 
+	cv::imshow("ind0", m_indicator0);
+	cv::imshow("ind1", m_indicator1);
+	cv::imshow("initImg", m_inputImg);
+	cv::imshow("initPop", m_initialPopulation);
+
+	cv::filter2D(m_indicator0, m_probabilityPopulation0, CV_32FC1, m_krigingKernel0, cv::Point(-1, -1), 0, cv::BORDER_CONSTANT);
+	cv::filter2D(m_indicator1, m_probabilityPopulation1, CV_32FC1, m_krigingKernel1);
+
+	cv::imshow("prob0", m_probabilityPopulation0);
+	cv::imshow("prob1", m_probabilityPopulation1);
+	//cv::waitKey(0);
+
+	for (int row = 0; row < m_threshold.rows; ++row)
+	{
+		for (int col = 0; col < m_threshold.cols; ++col)
+		{
+
+			if (m_threshold.at<unsigned char>(row, col) == UnknowPopulation)
+			{
+				if (m_probabilityPopulation0.at<float>(row, col) > 1.0 - m_probabilityPopulation1.at<float>(row, col))
+					m_threshold.at<unsigned char>(row, col) = Population0;
+				else
+					m_threshold.at<unsigned char>(row, col) = Population1;
+			}
+		}
+	}
+}
 
 //
 //bool indicator_kriging::calcCovariance()
