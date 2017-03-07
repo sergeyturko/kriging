@@ -2,26 +2,18 @@
 #define KRIGING_H
 
 #include <fstream>
+#include <iomanip>
 
 #include "opencv2\opencv.hpp"
 
 
+#define Population0 10
+#define Population1 254
+#define UnknowPopulation 125
+
+
 class kriging
 {
-public:
-	kriging(int radiusMF = 1, float threshMF = 0.6);
-	bool read(const cv::String& fname);
-	void show() const;
-	bool calcHist();
-	bool setT(unsigned char t0, unsigned char t1);
-	bool calcIndicator();
-	bool majorityFilter();
-	bool thresholding();
-
-	virtual void write(const cv::String& imgName) = 0;
-	virtual bool calcCovarianceMatrix() = 0;
-	virtual bool calcProbability() = 0;
-
 protected:
 	unsigned char m_T0;
 	unsigned char m_T1;
@@ -35,6 +27,11 @@ protected:
 	cv::Mat m_probabilityPopulation0;
 	cv::Mat m_probabilityPopulation1;
 
+	cv::Mat m_krigingSystemLeft_0;
+	cv::Mat m_krigingSystemLeft_1;
+	cv::Mat m_krigingSystemRight_0;
+	cv::Mat m_krigingSystemRight_1;
+
 	int m_radiusMF;
 	float m_threshMF;
 
@@ -42,13 +39,29 @@ protected:
 	float m_sd0;				// standart diviations of the thresholded P0 pupulaton
 	float m_sd1;				// standart diviations of the thresholded P1 pupulaton
 
+public:
+	kriging(int radiusMF = 1, float threshMF = 0.6);
+
+	bool read(const cv::String& fname);
+	void show() const;
+	bool setT(unsigned char t0, unsigned char t1);
+
+	bool calcHist();
+	bool thresholding();
+	bool calcIndicator();
+	bool majorityFilter();
+
 	void escapeNegativeWeights(cv::Mat& weightMatrix, const cv::Mat& krigingSystemRight) const;
+
+	virtual void write(const cv::String& imgName) = 0;
+	virtual bool calcCovarianceMatrix() = 0;
+	virtual bool calcProbability() = 0;
 };
 
 
 class fixedWindowKriging : public kriging
 {
-public:
+protected:
 	cv::Mat m_krigingKernel0;
 	cv::Mat m_krigingKernel1;
 
@@ -56,17 +69,28 @@ public:
 	int m_numElemUnderWindow;
 	int m_radiusKrigng;
 
+public:
 	fixedWindowKriging(int radiusKriging = 3, int radiusMF = 1, float threshMF = 0.6);
-	void write(const cv::String& imgName) override;
-	bool calcCovarianceMatrix() override;
-	bool calcProbability() override; // TODO optimize
 
 private: 
 	void setKernelIndexArray();
-	cv::Mat getKrigingSystem(const cv::Mat& sequencesMatrix, bool left_right) const; // false - return left matrix; true - return right matrix
 	float covariance(const cv::Mat seq0, const cv::Mat seq1) const;
-	cv::Mat getKrigignKernel(const cv::Mat& weightsMatrix);
+	cv::Mat getKrigingSystem(const cv::Mat& sequencesMatrix, bool left_right) const; // false - return left matrix; true - return right matrix
+	cv::Mat getKrigingKernel(const cv::Mat& weightsMatrix);
+
+public:
+	void write(const cv::String& imgName) override;
+	bool calcCovarianceMatrix() override;
+	bool calcProbability() override; // TODO optimize
 };
+
+
+class adaptiveWindowKriging : public kriging
+{
+	void write(const cv::String& imgName) override;
+	bool calcCovarianceMatrix() override;
+	bool calcProbability() override; 
+}; //TODO
 
 
 #endif // KGIGING_H
