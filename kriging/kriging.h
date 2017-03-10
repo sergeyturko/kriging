@@ -7,9 +7,9 @@
 #include "opencv2\opencv.hpp"
 
 
-#define Population0 10
-#define Population1 254
-#define UnknowPopulation 125
+const int Population0 = 10;
+const int Population1 = 254;
+const int UnknowPopulation = 125;
 
 
 class kriging
