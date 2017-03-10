@@ -111,7 +111,9 @@ bool kriging::calcIndicator()
 
 	float sl0 = 0;
 	float sr1 = 0;
-	float x = (m_sd0 * m_T1 + m_sd1 * m_T0) / (m_sd0 + m_sd1);
+	float x = 0.0;
+	if (!(m_sd0 == 0.0 && m_sd1 == 0.0))
+		x = (m_sd0 * m_T1 + m_sd1 * m_T0) / (m_sd0 + m_sd1);
 	float sr0 = x - m_T0;
 	float sl1 = m_T1 - x;
 	
@@ -373,14 +375,19 @@ cv::Mat fixedWindowKriging::getKrigingKernel(const cv::Mat& weightsMatrix)
 }
 
 
-void fixedWindowKriging::write(const cv::String& imgName)
+void fixedWindowKriging::write(const cv::String& imgName, bool test)
 {
 	m_indicator0.convertTo(m_indicator0, CV_8UC1, 255.0);
 	m_indicator1.convertTo(m_indicator1, CV_8UC1, 255.0);
 	m_probabilityPopulation0.convertTo(m_probabilityPopulation0, CV_8UC1, 255.0);
 	m_probabilityPopulation1.convertTo(m_probabilityPopulation1, CV_8UC1, 255.0);
 
-	const cv::String path = "..//images//output//" + imgName;
+	cv::String path;
+	if (test)
+		path = "..//images//output//tests//" + imgName;
+	else 
+		path = "..//images//output//" + imgName;
+
 	cv::String thresh = cv::format("_%i_%i.", m_T0, m_T1);
 	cv::String a = path + "_initial_threshold" + thresh + "png";
 	if (m_initialPopulation.data)
@@ -402,8 +409,8 @@ void fixedWindowKriging::write(const cv::String& imgName)
 
 	std::ofstream file0;
 	std::ofstream file1;
-	file0.open("..//images//output//" + imgName + "_krigingKernel_population0" + thresh + "txt");
-	file1.open("..//images//output//" + imgName + "_krigingKernel_population1" + thresh + "txt");
+	file0.open(path + "_krigingKernel_population0" + thresh + "txt");
+	file1.open(path + "_krigingKernel_population1" + thresh + "txt");
 	int kernelSize = 2 * m_radiusKrigng + 1;
 	for (int row = 0; row < kernelSize; ++row)
 	{
@@ -419,8 +426,8 @@ void fixedWindowKriging::write(const cv::String& imgName)
 	file1.close();
 
 	std::ofstream f0, f1;
-	f0.open("..//images//output//" + imgName + "_krigingSystem_population0" + thresh + "txt");
-	f1.open("..//images//output//" + imgName + "_krigingSystem_population1" + thresh + "txt");
+	f0.open(path + "_krigingSystem_population0" + thresh + "txt");
+	f1.open(path + "_krigingSystem_population1" + thresh + "txt");
 	for (int row = 0; row < m_numElemUnderWindow; ++row)
 	{
 		for (int col = 0; col < m_numElemUnderWindow; ++col)

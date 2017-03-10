@@ -53,7 +53,7 @@ public:
 
 	void escapeNegativeWeights(cv::Mat& weightMatrix, const cv::Mat& krigingSystemRight) const;
 
-	virtual void write(const cv::String& imgName) = 0;
+	virtual void write(const cv::String& imgName, bool test = false) = 0;
 	virtual bool calcCovarianceMatrix() = 0;
 	virtual bool calcProbability() = 0;
 };
@@ -79,7 +79,7 @@ private:
 	cv::Mat getKrigingKernel(const cv::Mat& weightsMatrix);
 
 public:
-	void write(const cv::String& imgName) override;
+	void write(const cv::String& imgName, bool test = false) override;
 	bool calcCovarianceMatrix() override;
 	bool calcProbability() override; // TODO optimize
 };
@@ -87,7 +87,7 @@ public:
 
 class adaptiveWindowKriging : public kriging
 {
-	void write(const cv::String& imgName) override;
+	void write(const cv::String& imgName, bool test = false) override;
 	bool calcCovarianceMatrix() override;
 	bool calcProbability() override; 
 }; //TODO
