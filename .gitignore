@@ -10,3 +10,8 @@
 *.lastbuildstate
 *.idb
 *.ilk
+*.exe
+*.iobj
+*.ipdb
+*.db
+*.opendb
