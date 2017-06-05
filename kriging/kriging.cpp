@@ -49,12 +49,41 @@ bool kriging::calcHist()
 	cv::Mat hist;
 
 	cv::calcHist(&m_inputImg, 1, 0, cv::Mat(), hist, 1, &histSize, &histRange);
+
+	/*//////////////////
+	// Draw the histograms for B, G and R
+	int hist_w = 512; int hist_h = 400;
+	int bin_w = cvRound((double)hist_w / histSize);
+
+	cv::Mat histImage(hist_h, hist_w, CV_8UC3, cv::Scalar(0, 0, 0));
+
+	// Normalize the result to [ 0, histImage.rows ]
+	cv::normalize(hist, hist, 0, histImage.rows, cv::NORM_MINMAX, -1, cv::Mat());
+	for (int i = 1; i < histSize; i++)
+	{
+		line(histImage, cv::Point(bin_w*(i - 1), hist_h - cvRound(hist.at<float>(i - 1))),
+			cv::Point(bin_w*(i), hist_h - cvRound(hist.at<float>(i))),
+			cv::Scalar(255, 0, 0), 2, 8, 0);
+	}
+
+	/// Display
+	cv::namedWindow("calcHist Demo", CV_WINDOW_AUTOSIZE);
+	cv::imshow("calcHist Demo", histImage);
+
+	cv::waitKey(0);
+	///////////////////////////////
+	*/
+
+
+
 	m_cumProbHist = cv::Mat(hist.rows, hist.cols, CV_32FC1);
+	m_probHist = cv::Mat(hist.rows, hist.cols, CV_32FC1);
 	float sum = 0.0;
 	for (int i = 0; i < m_cumProbHist.rows; ++i)
 	{
 		float prob = (hist.at<float>(i, 0) / m_numAllPixels);
 		m_cumProbHist.at<float>(i, 0) = prob + sum;
+		m_probHist.at<float>(i, 0) = prob;
 		sum += prob;
 	}	
 	return true;
@@ -101,6 +130,9 @@ bool kriging::thresholding()
 	m_threshold.copyTo(m_initialPopulation);
 	//cv::threshold(m_inputImg, m_threshold, m_T0, 0, CV_THRESH_TOZERO);
 	//cv::threshold(m_threshold, m_threshold, m_T1, 0, CV_THRESH_TRUNC);
+
+	cv::imshow("thres", m_threshold);
+	cv::waitKey(0);
 	return true;
 }
 
@@ -263,6 +295,95 @@ void kriging::escapeNegativeWeights(cv::Mat& weightMatrix, const cv::Mat& krigin
 		nSum += weightMatrix.at<float>(row, 0);
 	}
 	weightMatrix = weightMatrix / nSum;
+}
+
+
+//float kriging::calcEtrophy() 
+//{
+//	float Entrophy = 0.0;
+//	for (int i = 0; i < m_probHist.rows; ++i)
+//	{
+//		float value = m_probHist.at<float>(i, 0);
+//		if (value != 0.0)
+//			Entrophy += value * std::log(value);
+//	}
+//	Entrophy = -Entrophy;
+//}
+
+const float treshProb = 0.005;
+
+float kriging::calcKapurEtrophy(int T)
+{
+	if (T < 0 || T > 255)
+		return false;
+
+	float probabilityLeft =  m_cumProbHist.at<float>(T, 0);
+	if (probabilityLeft <= treshProb || probabilityLeft >= 1.0 - treshProb)
+		return 0.0;
+
+	float probabilityRight = 1 - probabilityLeft;
+
+	float entrophyLeft = 0.0;
+	float Entrophy = 0.0;
+
+	int i = 0;
+	for (i = 0; i <= T; ++i)
+	{
+		float value = m_probHist.at<float>(i, 0);
+		if (value != 0.0)
+			entrophyLeft += value * std::log(value);
+	}
+	for (; i <= 255; ++i)
+	{
+		float value = m_probHist.at<float>(i, 0);
+		if (value != 0.0)
+			Entrophy += value * std::log(value);
+	}
+
+	Entrophy = -(Entrophy + entrophyLeft);
+	entrophyLeft = -entrophyLeft;
+	float a = std::log(probabilityLeft*probabilityRight);
+	float b = (entrophyLeft / probabilityLeft);
+	float c = ((Entrophy - entrophyLeft) / probabilityRight);
+
+	return std::log(probabilityLeft*probabilityRight) + (entrophyLeft / probabilityLeft) + ((Entrophy - entrophyLeft) / probabilityRight);
+}
+
+void kriging::chooseThreshold(float r)
+{
+	r = (r > 1.0) ? 1.0 : r;
+	r = (r < 0.0) ? 0.0 : r;
+	float entrophy[256];
+	float max = 0.0;
+	int maxIdx;
+	for (int i = 0; i <= 255; ++i)
+	{
+		entrophy[i] = calcKapurEtrophy(i);
+		if (max <= entrophy[i])
+		{
+			max = entrophy[i];
+			maxIdx = i;
+		}
+	}
+
+	float inv_r = 1.0 - r;
+	float fi = inv_r * max;
+	for (int i = maxIdx - 1; i != 0; --i)
+	{
+		if (entrophy[i] <= fi)
+		{
+			m_T0 = i;
+			break;
+		}
+	}
+	for (int i = maxIdx + 1; i <= 255; ++i)
+	{
+		if (entrophy[i] <= fi)
+		{
+			m_T1 = i;
+			break;
+		}
+	}
 }
 
 

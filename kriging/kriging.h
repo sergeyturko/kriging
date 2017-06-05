@@ -23,6 +23,7 @@ protected:
 	cv::Mat m_initialPopulation;
 	cv::Mat m_indicator0;
 	cv::Mat m_indicator1;
+	cv::Mat m_probHist;
 	cv::Mat m_cumProbHist;
 	cv::Mat m_probabilityPopulation0;
 	cv::Mat m_probabilityPopulation1;
@@ -52,6 +53,10 @@ public:
 	bool majorityFilter();
 
 	void escapeNegativeWeights(cv::Mat& weightMatrix, const cv::Mat& krigingSystemRight) const;
+
+	//float calcEtrophy();
+	float kriging::calcKapurEtrophy(int T);
+	void chooseThreshold(float r);
 
 	virtual void write(const cv::String& imgName, bool test = false) = 0;
 	virtual bool calcCovarianceMatrix() = 0;
