@@ -17,6 +17,10 @@ class kriging
 protected:
 	unsigned char m_T0;
 	unsigned char m_T1;
+	unsigned char m_T2;
+	unsigned char m_T3;
+
+	cv::Mat m_cumHist;
 
 	cv::Mat m_inputImg;
 	cv::Mat m_threshold; // output
@@ -41,6 +45,9 @@ protected:
 	float m_sd1;				// standart diviations of the thresholded P1 pupulaton
 
 public:
+	void Kmeans(std::vector<double> t);
+	double calcmu(int s, int t);
+	void Otsu(int q);
 	kriging(int radiusMF = 1, float threshMF = 0.6);
 
 	bool read(const cv::String& fname);

@@ -38,6 +38,186 @@ bool kriging::setT(unsigned char t0, unsigned char t1)
 }
 
 
+void kriging::Kmeans(std::vector<double> t)
+{
+	int size_vector = t.size();
+	int step = 256 / size_vector;
+
+	int N = m_inputImg.total();
+	unsigned char* data = m_inputImg.data;
+	cv::Mat cluster(m_inputImg.size(), CV_8UC1);
+	unsigned char* cl_data = cluster.data;
+
+	std::vector<double> c(t);
+	for (int j = 0;; ++j) 
+	{//Запускаем основной цикл
+		std::vector<int> sum(size_vector, 0);
+		std::vector<int> n(size_vector, 0);
+		std::vector<double> last_c(c);
+		for (int i = 0; i < N; ++i)
+		{
+			double min = 513.0;
+			int x = -1;
+			for (int it = 0; it < size_vector; ++it)
+			{
+				if (min >= abs(c[it] - *data))
+				{
+					min = abs(c[it] - *data);
+					x = it;
+				}
+			}
+			sum[x] += *data;
+			n[x] += 1;
+			*cl_data = x * step;
+
+			data++;
+			cl_data++;
+		}
+		data = m_inputImg.data;
+		cl_data = cluster.data;
+		bool flag = true;
+
+		for (int it = 0; it < size_vector; ++it)
+		{
+			c[it] = 1.0 * sum[it] / n[it];
+			flag = (c[it] == last_c[it]);
+		}
+
+		for (int it = 0; it < size_vector; ++it)
+			std::cout << c[it] << std::endl;
+		
+		std::cout << std::endl << std::endl;
+		//std::cout << "iteration: " << j << std::endl;
+		//std::cout << "c0: " << c0 << "    c1: " << c1 << "    c2: " << c2 << "    c3: " << c3 << std::endl;
+		cv::imshow("img", m_inputImg);
+		cv::imshow("cluster", cluster);
+		cv::waitKey(0);
+
+
+		if (flag) break;
+	}
+
+	int histSize = 256;
+	float range[] = { 0, 256 };
+	const float* histRange = { range };
+	cv::Mat hist;
+
+	cv::calcHist(&m_inputImg, 1, 0, cv::Mat(), hist, 1, &histSize, &histRange);
+
+	//////////////////
+	// Draw the histograms for B, G and R
+	hist.copyTo(hist);
+	int hist_w = 512; int hist_h = 400;
+	int bin_w = cvRound((double)hist_w / histSize);
+
+	cv::Mat histImage(hist_h, hist_w, CV_8UC3, cv::Scalar(0, 0, 0));
+	// Normalize the result to [ 0, histImage.rows ]
+	cv::normalize(hist, hist, 0, histImage.rows, cv::NORM_MINMAX, -1, cv::Mat());
+	for (int i = 1; i < histSize; i++)
+	{
+		line(histImage, cv::Point(bin_w*(i - 1), hist_h - cvRound(hist.at<float>(i - 1))),
+			cv::Point(bin_w*(i), hist_h - cvRound(hist.at<float>(i))),
+			cv::Scalar(255, 0, 0), 2, 8, 0);
+	}
+	for (auto it = c.begin(); it != c.end(); ++it)
+	{
+		line(histImage, cv::Point(bin_w*(*it), hist_h),
+			cv::Point(bin_w*(*it), 100),
+			cv::Scalar(0, 255, 0), 2, 8, 0);
+	}
+
+	/// Display
+	cv::namedWindow("calcHist Demo (kMeans)", CV_WINDOW_AUTOSIZE);
+	cv::imshow("calcHist Demo (kMeans)", histImage);
+	cv::waitKey(0);
+	///////////////////////////////
+
+
+}
+
+double kriging::calcmu(int s, int t)
+{
+	double sum = 0.0;
+	for (int i = s; i < t; ++i)
+		sum += m_probHist.at<float>(i, 0) * i;
+	return sum;
+}
+
+void kriging::Otsu(int q)
+{
+	std::vector<int> t(q, 0);
+
+	double max = -50.0;
+	int _t0 = 0;
+	int _t1 = 0;
+	double muT = calcmu(0, 256);
+
+	for (int t0 = 0; t0 < 256; ++t0)
+	{
+		for (int t1 = t0; t1 < 256; ++t1)
+		{
+			double w0 = m_cumProbHist.at<float>(t0, 0);
+			double w1 = m_cumProbHist.at<float>(t1, 0) - w0;
+			double w2 = 1.0 - m_cumProbHist.at<float>(t1, 0);
+			double mu0 = calcmu(0, t0) / w0;
+			double mu1 = calcmu(t0, t1) / w1;
+			double mu2 = calcmu(t1, 256) / w2;
+			double sigma0 = w0 * (mu0 - muT) * (mu0 - muT);
+			double sigma1 = w1 * (mu1 - muT) * (mu1 - muT);
+			double sigma2 = w2 * (mu2 - muT) * (mu2 - muT);
+			double JJJ = sigma0 + sigma1 + sigma2;
+			if (JJJ > max)
+			{
+				_t0 = t0;
+				_t1 = t1;
+				max = JJJ;
+			}
+		}
+	}
+
+	m_T0 = _t0;
+	m_T1 = _t1;
+
+	/////////////////////////////////////////////////////////
+	std::vector<double> c;
+	c.push_back(m_T0);
+	c.push_back(m_T1);
+	int histSize = 256;
+	float range[] = { 0, 256 };
+	const float* histRange = { range };
+	cv::Mat hist;
+
+	cv::calcHist(&m_inputImg, 1, 0, cv::Mat(), hist, 1, &histSize, &histRange);
+
+	//////////////////
+	// Draw the histograms for B, G and R
+	hist.copyTo(hist);
+	int hist_w = 512; int hist_h = 400;
+	int bin_w = cvRound((double)hist_w / histSize);
+
+	cv::Mat histImage(hist_h, hist_w, CV_8UC3, cv::Scalar(0, 0, 0));
+	// Normalize the result to [ 0, histImage.rows ]
+	cv::normalize(hist, hist, 0, histImage.rows, cv::NORM_MINMAX, -1, cv::Mat());
+	for (int i = 1; i < histSize; i++)
+	{
+		line(histImage, cv::Point(bin_w*(i - 1), hist_h - cvRound(hist.at<float>(i - 1))),
+			cv::Point(bin_w*(i), hist_h - cvRound(hist.at<float>(i))),
+			cv::Scalar(255, 0, 0), 2, 8, 0);
+	}
+	for (auto it = c.begin(); it != c.end(); ++it)
+	{
+		line(histImage, cv::Point(bin_w*(*it), hist_h),
+			cv::Point(bin_w*(*it), 100),
+			cv::Scalar(0, 0, 255), 2, 8, 0);
+	}
+
+	/// Display
+	cv::namedWindow("calcHist Demo", CV_WINDOW_AUTOSIZE);
+	cv::imshow("calcHist Demo", histImage);
+	cv::waitKey(0);
+	///////////////////////////////
+}
+
 bool kriging::calcHist()
 {
 	if (!m_inputImg.data)
@@ -50,34 +230,9 @@ bool kriging::calcHist()
 
 	cv::calcHist(&m_inputImg, 1, 0, cv::Mat(), hist, 1, &histSize, &histRange);
 
-	/*//////////////////
-	// Draw the histograms for B, G and R
-	int hist_w = 512; int hist_h = 400;
-	int bin_w = cvRound((double)hist_w / histSize);
-
-	cv::Mat histImage(hist_h, hist_w, CV_8UC3, cv::Scalar(0, 0, 0));
-
-	// Normalize the result to [ 0, histImage.rows ]
-	cv::normalize(hist, hist, 0, histImage.rows, cv::NORM_MINMAX, -1, cv::Mat());
-	for (int i = 1; i < histSize; i++)
-	{
-		line(histImage, cv::Point(bin_w*(i - 1), hist_h - cvRound(hist.at<float>(i - 1))),
-			cv::Point(bin_w*(i), hist_h - cvRound(hist.at<float>(i))),
-			cv::Scalar(255, 0, 0), 2, 8, 0);
-	}
-
-	/// Display
-	cv::namedWindow("calcHist Demo", CV_WINDOW_AUTOSIZE);
-	cv::imshow("calcHist Demo", histImage);
-
-	cv::waitKey(0);
-	///////////////////////////////
-	*/
-
-
-
 	m_cumProbHist = cv::Mat(hist.rows, hist.cols, CV_32FC1);
 	m_probHist = cv::Mat(hist.rows, hist.cols, CV_32FC1);
+	m_cumHist = cv::Mat(hist.rows, hist.cols, CV_32FC1);
 	float sum = 0.0;
 	for (int i = 0; i < m_cumProbHist.rows; ++i)
 	{
@@ -366,6 +521,7 @@ void kriging::chooseThreshold(float r)
 		}
 	}
 
+
 	float inv_r = 1.0 - r;
 	float fi = inv_r * max;
 	for (int i = maxIdx - 1; i != 0; --i)
@@ -384,6 +540,9 @@ void kriging::chooseThreshold(float r)
 			break;
 		}
 	}
+
+	std::cout << "c_T0: " << (int)m_T0 << std::endl;
+	std::cout << "c_T1: " << (int)m_T1 << std::endl;
 }
 
 

@@ -6,6 +6,12 @@ int main()
 	fixedWindowKriging test1;
 
 	test1.read("..//images//input//FB_2_1_1__rec3002.png");
+
+	std::vector<double> t = { 60, 190};
+	test1.Kmeans(t);
+
+	test1.calcHist();
+	test1.Otsu(2);
 	test1.calcHist();
 
 	//for (int i = 0; i <= 255; ++i)
@@ -13,7 +19,7 @@ int main()
 	//	float val = test1.calcKapurEtrophy(i);
 	//	std::cout << val << std::endl;
 	//}
-	test1.chooseThreshold(0.03);
+	//test1.chooseThreshold(0.03);
 	//std::system("pause");
 
 	//return 0;
