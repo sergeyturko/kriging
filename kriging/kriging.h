@@ -79,7 +79,7 @@ protected:
 
 	std::vector<std::pair<int, int>> m_krigingKernelIndex; // pair(row, col)
 	int m_numElemUnderWindow;
-	int m_radiusKrigng;
+	int m_radiusKriging;
 
 public:
 	fixedWindowKriging(int radiusKriging = 3, int radiusMF = 1, float threshMF = 0.6);
@@ -91,6 +91,7 @@ private:
 	cv::Mat getKrigingKernel(const cv::Mat& weightsMatrix);
 
 public:
+	void setKrigingKernel(float sigma);
 	void write(const cv::String& imgName, bool test = false) override;
 	bool calcCovarianceMatrix() override;
 	bool calcProbability() override; // TODO optimize

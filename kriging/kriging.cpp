@@ -1,5 +1,5 @@
 #include "kriging.h"
-
+#include "string"
 
 kriging::kriging(int radiusMF, float threshMF) : m_radiusMF(radiusMF), m_threshMF(threshMF)
 {
@@ -25,7 +25,12 @@ void kriging::show() const
 	{
 		cv::imshow("Input", m_inputImg);
 		if (m_threshold.data)
-			cv::imshow("Output", m_threshold);
+		{
+			if (m_krigingSystemLeft_0.data)
+				cv::imshow("Output kr", m_threshold);
+			else
+				cv::imshow("Output", m_threshold);
+		}
 		cv::waitKey(0);
 	}
 }
@@ -286,8 +291,8 @@ bool kriging::thresholding()
 	//cv::threshold(m_inputImg, m_threshold, m_T0, 0, CV_THRESH_TOZERO);
 	//cv::threshold(m_threshold, m_threshold, m_T1, 0, CV_THRESH_TRUNC);
 
-	cv::imshow("thres", m_threshold);
-	cv::waitKey(0);
+	//cv::imshow("thres", m_threshold);
+	//cv::waitKey(0);
 	return true;
 }
 
@@ -302,7 +307,7 @@ bool kriging::calcIndicator()
 	if (!(m_sd0 == 0.0 && m_sd1 == 0.0))
 		x = (m_sd0 * m_T1 + m_sd1 * m_T0) / (m_sd0 + m_sd1);
 	float sr0 = x - m_T0;
-	float sl1 = m_T1 - x;
+	float sl1 = m_T1 - x;  // sr0;  m_T1 - x;
 	
 	float Tsl0 = m_T0 - sl0;
 	float Tsr0 = m_T0 + sr0;
@@ -548,7 +553,7 @@ void kriging::chooseThreshold(float r)
 
 
 fixedWindowKriging::fixedWindowKriging(int radiusKriging, int radiusMF, float threshMF) 
-: kriging(radiusMF, threshMF), m_radiusKrigng(radiusKriging) {}
+: kriging(radiusMF, threshMF), m_radiusKriging(radiusKriging) {}
 
 
 //void fixedWindowKriging::setKernelIndexArray()
@@ -589,11 +594,11 @@ fixedWindowKriging::fixedWindowKriging(int radiusKriging, int radiusMF, float th
 
 void fixedWindowKriging::setKernelIndexArray()
 {
-	for (int row = -m_radiusKrigng; row <= m_radiusKrigng; ++row)
+	for (int row = -m_radiusKriging; row <= m_radiusKriging; ++row)
 	{
-		for (int col = -m_radiusKrigng; col <= m_radiusKrigng; ++col)							//			   00
+		for (int col = -m_radiusKriging; col <= m_radiusKriging; ++col)							//			   00
 		{																						//		 01 02 03 04 05																	//	  11 12 13 xx .. .. ..
-			if (std::sqrt(row*row + col *col) <= m_radiusKrigng && !(row == 0 && col == 0))		//		 06 07 08 09 10
+			if (std::sqrt(row*row + col *col) <= m_radiusKriging && !(row == 0 && col == 0))		//		 06 07 08 09 10
 				m_krigingKernelIndex.push_back(std::pair<int, int>(row, col));					//	  11 12 13 28 14 15 16
 		}																						//		 17 18 19 20 21
 	}																							//		 22 23 24 25 26																									//			   27
@@ -645,13 +650,31 @@ cv::Mat fixedWindowKriging::getKrigingSystem(const cv::Mat& sequencesMatrix, boo
 
 cv::Mat fixedWindowKriging::getKrigingKernel(const cv::Mat& weightsMatrix)
 {
-	int kernelSize = 2 * m_radiusKrigng + 1;
+	int kernelSize = 2 * m_radiusKriging + 1;
 	cv::Mat krigingKernel(kernelSize, kernelSize, CV_32FC1, cv::Scalar(0.0));
 	int size_system = m_numElemUnderWindow - 1;
 	for (int i = 0; i < size_system; ++i)
-		krigingKernel.at<float>(m_krigingKernelIndex[i].first + m_radiusKrigng, m_krigingKernelIndex[i].second + m_radiusKrigng) = weightsMatrix.at<float>(i, 0);
+		krigingKernel.at<float>(m_krigingKernelIndex[i].first + m_radiusKriging, m_krigingKernelIndex[i].second + m_radiusKriging) = weightsMatrix.at<float>(i, 0);
 
 	return krigingKernel;
+}
+
+void fixedWindowKriging::setKrigingKernel(float sigma)
+{
+	int kernelSize = 2 * m_radiusKriging + 1;
+	m_krigingKernel0.create(kernelSize, kernelSize, CV_32FC1);
+	m_krigingKernel1.create(kernelSize, kernelSize, CV_32FC1);
+
+	for (int x = -m_radiusKriging; x < -m_radiusKriging + kernelSize; x++)
+	{
+		for (int y = -m_radiusKriging; y < -m_radiusKriging + kernelSize; y++)
+		{
+			m_krigingKernel0.at<float>(x + m_radiusKriging, y + m_radiusKriging) = (1.0 / (sigma * std::sqrt(2 *3.1481))) *  exp(-((x * x + y * y) / (2 * sigma * sigma)));;
+			m_krigingKernel1.at<float>(x + m_radiusKriging, y + m_radiusKriging) = m_krigingKernel0.at<float>(x + m_radiusKriging, y + m_radiusKriging);
+		}
+	}
+	m_krigingKernel0.at<float>(m_radiusKriging, m_radiusKriging) = 0.0;
+	m_krigingKernel1.at<float>(m_radiusKriging, m_radiusKriging) = 0.0;
 }
 
 
@@ -691,7 +714,7 @@ void fixedWindowKriging::write(const cv::String& imgName, bool test)
 	std::ofstream file1;
 	file0.open(path + "_krigingKernel_population0" + thresh + "txt");
 	file1.open(path + "_krigingKernel_population1" + thresh + "txt");
-	int kernelSize = 2 * m_radiusKrigng + 1;
+	int kernelSize = 2 * m_radiusKriging + 1;
 	for (int row = 0; row < kernelSize; ++row)
 	{
 		for (int col = 0; col < kernelSize; ++col)
@@ -732,8 +755,8 @@ bool fixedWindowKriging::calcCovarianceMatrix()
 	cv::Mat indicator0;
 	cv::Mat indicator1;
 
-	cv::copyMakeBorder(m_indicator0, indicator0, m_radiusKrigng, m_radiusKrigng, m_radiusKrigng, m_radiusKrigng, cv::BORDER_CONSTANT, cv::Scalar(0.5));
-	cv::copyMakeBorder(m_indicator1, indicator1, m_radiusKrigng, m_radiusKrigng, m_radiusKrigng, m_radiusKrigng, cv::BORDER_CONSTANT, cv::Scalar(0.5));
+	cv::copyMakeBorder(m_indicator0, indicator0, m_radiusKriging, m_radiusKriging, m_radiusKriging, m_radiusKriging, cv::BORDER_CONSTANT, cv::Scalar(0.5));
+	cv::copyMakeBorder(m_indicator1, indicator1, m_radiusKriging, m_radiusKriging, m_radiusKriging, m_radiusKriging, cv::BORDER_CONSTANT, cv::Scalar(0.5));
 
 	if ((indicator0.rows != indicator1.rows) || (indicator0.cols != indicator1.cols))
 		return false;
@@ -741,9 +764,9 @@ bool fixedWindowKriging::calcCovarianceMatrix()
 	cv::Mat sequences0(m_numAllPixels, m_numElemUnderWindow, CV_32FC1);
 	cv::Mat sequences1(m_numAllPixels, m_numElemUnderWindow, CV_32FC1);
 	int counter = 0;
-	for (int row = m_radiusKrigng; row < indicator0.rows - m_radiusKrigng; ++row)
+	for (int row = m_radiusKriging; row < indicator0.rows - m_radiusKriging; ++row)
 	{
-		for (int col = m_radiusKrigng; col < indicator0.cols - m_radiusKrigng; ++col)
+		for (int col = m_radiusKriging; col < indicator0.cols - m_radiusKriging; ++col)
 		{
 			int i = 0;
 			for (const auto coord : m_krigingKernelIndex)
