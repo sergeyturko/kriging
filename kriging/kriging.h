@@ -6,6 +6,8 @@
 
 #include "opencv2\opencv.hpp"
 
+#define M_PI 3.141592653589793238463
+
 
 const int Population0 = 10;
 const int Population1 = 254;
@@ -21,6 +23,7 @@ protected:
 	unsigned char m_T3;
 
 	cv::Mat m_cumHist;
+	cv::Mat m_hist;
 
 	cv::Mat m_inputImg;
 	cv::Mat m_threshold; // output
@@ -48,6 +51,7 @@ public:
 	void Kmeans(std::vector<double> t);
 	double calcmu(int s, int t);
 	void Otsu(int q);
+	void EM(int num_klass);
 	kriging(int radiusMF = 1, float threshMF = 0.6);
 
 	bool read(const cv::String& fname);

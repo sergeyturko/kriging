@@ -1,4 +1,4 @@
-#include "kriging.h"
+п»ї#include "kriging.h"
 #include "string"
 
 kriging::kriging(int radiusMF, float threshMF) : m_radiusMF(radiusMF), m_threshMF(threshMF)
@@ -55,7 +55,7 @@ void kriging::Kmeans(std::vector<double> t)
 
 	std::vector<double> c(t);
 	for (int j = 0;; ++j) 
-	{//Запускаем основной цикл
+	{//Р—Р°РїСѓСЃРєР°РµРј РѕСЃРЅРѕРІРЅРѕР№ С†РёРєР»
 		std::vector<int> sum(size_vector, 0);
 		std::vector<int> n(size_vector, 0);
 		std::vector<double> last_c(c);
@@ -137,7 +137,21 @@ void kriging::Kmeans(std::vector<double> t)
 	cv::waitKey(0);
 	///////////////////////////////
 
-
+	/*cv::Mat tmp;
+	for (int row = 0; row < m_inputImg.rows; ++row)
+	{
+		for (int col = 0; col < m_inputImg.cols; ++col)
+		{
+			if (m_inputImg.at<unsigned char>(row, col) > c[0] &&
+				m_inputImg.at<unsigned char>(row, col) < c[1])
+			{
+				cv::Mat a(1, 1, CV_8UC1);
+				a.at<unsigned char>(0, 0) = m_inputImg.at<unsigned char>(row, col);
+				tmp.push_back(a);
+			}
+		}
+	}
+	tmp.copyTo(m_inputImg);*/
 }
 
 double kriging::calcmu(int s, int t)
@@ -223,6 +237,163 @@ void kriging::Otsu(int q)
 	///////////////////////////////
 }
 
+double NNN(double mu, double sigma, double x)
+{
+	double a = (1.0 / (sigma * std::sqrt(2.0 * M_PI)));
+	double exp = std::exp(-(((x - mu) * (x - mu)) / (2 * sigma * sigma))); return a * exp;
+}
+
+void kriging::EM(int num_klass)
+{
+	double E = 0.1;
+	double logSumPxn_prev = 0.0;
+	int size = m_inputImg.rows * m_inputImg.cols;
+	cv::Mat Pnk(size, num_klass, CV_64FC1);
+	std::vector<double> w(num_klass, 1.0 / num_klass);
+	std::vector<double> sigma(num_klass, 25.0);
+	std::vector<double> mu(num_klass);
+	for (int i = 1; i <= mu.size(); ++i)
+		mu[i - 1] = 256.0 / (num_klass + 1) * i - 1.0;
+
+	//a E
+	std::vector<double> sumPxn(size, 0.0); 
+	for (int clas = 0; clas < num_klass; ++clas)
+	{
+		for (int row = 0; row < m_inputImg.rows; ++row)
+		{
+			for (int col = 0; col < m_inputImg.cols; ++col)
+			{
+				int idx = m_inputImg.cols * row + col;
+				Pnk.at<double>(idx, clas) = w[clas] * NNN(mu[clas], sigma[clas], m_inputImg.at<unsigned char>(row, col));
+				sumPxn[idx] += Pnk.at<double>(idx, clas);
+			}
+		}
+	}
+	logSumPxn_prev = 0.0;
+	for (int col = 0; col < num_klass; ++col)
+	{
+		for (int row = 0; row < size; ++row)
+		{
+			logSumPxn_prev += std::log10(sumPxn[row]);
+			Pnk.at<double>(row, col) = Pnk.at<double>(row, col) / sumPxn[row];
+		}
+	}
+
+	for (;;)
+	{
+		//update mu, sigma, w // M 
+		for (int i = 0; i < w.size(); ++i)
+		{
+			double sum_Pnk = 0.0;
+			long float znam = 0.0;
+			for (int row = 0; row < m_inputImg.rows; ++row)
+			{
+				for (int col = 0; col < m_inputImg.cols; ++col)
+				{
+					int idx = m_inputImg.cols * row + col;
+					znam += Pnk.at<double>(idx, i) * m_inputImg.at<unsigned char>(row, col);
+					sum_Pnk += Pnk.at<double>(idx, i);
+				}
+			}
+			w[i] = (1.0 / size) * sum_Pnk;
+			mu[i] = znam / sum_Pnk;
+			znam = 0.0;
+			for (int row = 0; row < m_inputImg.rows; ++row)
+			{
+				for (int col = 0; col < m_inputImg.cols; ++col)
+				{
+					int idx = m_inputImg.cols * row + col;
+					znam += Pnk.at<double>(idx, i) * (m_inputImg.at<unsigned char >(row, col) - mu[i])
+						* (m_inputImg.at<unsigned char>(row, col) - mu[i]);
+				}
+			}
+			sigma[i] = std::sqrt(znam / sum_Pnk);
+		}
+
+		//a E
+		for (auto& i : sumPxn)
+			i = 0.0;
+		for (int clas = 0; clas < num_klass; ++clas)
+		{
+			for (int row = 0; row < m_inputImg.rows; ++row)
+			{
+				for (int col = 0; col < m_inputImg.cols; ++col)
+				{
+					int idx = m_inputImg.cols * row + col; 
+					Pnk.at<double>(idx, clas) = w[clas] * NNN(mu[clas], sigma[clas], m_inputImg.at<unsigned char>(row, col));
+					sumPxn[idx] += Pnk.at<double>(idx, clas);
+				}
+			}
+		}
+		double logSumPxn = 0.0;
+		for (int col = 0; col < num_klass; ++col)
+		{
+			for (int row = 0; row < size; ++row)
+			{
+				logSumPxn += std::log10(sumPxn[row]); 
+				Pnk.at<double>(row, col) = Pnk.at<double>(row, col) / sumPxn[row];
+			}
+		}
+
+		std::cout << "w: " << w[0] << " " << w[1] << std::endl;
+		std::cout << "mu: " << mu[0] << " " << mu[1] << std::endl;
+		std::cout << "sigma: " << sigma[0] << " " << sigma[1] << std::endl;
+		std::cout << "E: " << std::fabsf(logSumPxn - logSumPxn_prev) << std::endl << std::endl;
+
+		if (std::fabsf(logSumPxn - logSumPxn_prev) < E) 
+			break;
+
+		logSumPxn_prev = logSumPxn;
+	} //end cicle //////////////////вЂѓ
+
+	std::vector<int> c; for (auto i : mu)
+		c.push_back(i);
+
+	// Draw the histograms for B, G and R
+	int histSize = 256;
+	float range[] = { 0, 256 };
+	const float* histRange = { range };
+
+	cv::Mat myHist;
+	m_hist.copyTo(myHist);
+	for (int i = 0; i < myHist.rows; ++i)
+	{
+		float sum = 0.0;
+		for (int j = 0; j < w.size(); ++j)
+			sum += w[j] * NNN(mu[j], sigma[j], i);
+		myHist.at<float>(i, 0) = sum;
+	}
+
+	cv::Mat hist;
+	m_hist.copyTo(hist);
+	int hist_w = 512; int hist_h = 400;
+	int bin_w = cvRound((double)hist_w / histSize);
+
+	cv::Mat histImage(hist_h, hist_w, CV_8UC3, cv::Scalar(0, 0, 0));
+	// Normalize the result to [ 0, histlmage.rows ]
+	cv::normalize(hist, hist, 0, histImage.rows, cv::NORM_MINMAX, -1, cv::Mat()); 
+	cv::normalize(myHist, myHist, 0, histImage.rows, cv::NORM_MINMAX, -1, cv::Mat());
+
+	for (int i = 1; i < histSize; i++)
+	{
+		line(histImage, cv::Point(bin_w*(i - 1), hist_h - cvRound(hist.at<float>(i - 1))),
+			cv::Point(bin_w*(i), hist_h - cvRound(hist.at<float>(i))), cv::Scalar(255, 0, 0), 2, 8, 0);
+		line(histImage, cv::Point(bin_w*(i - 1), hist_h - cvRound(myHist.at<float>(i - 1))),
+			cv::Point(bin_w*(i), hist_h - cvRound(myHist.at<float>(i))), cv::Scalar(255, 255, 0), 2, 8, 0);
+	}
+	for (auto it = c.begin(); it != c.end(); ++it)
+	{
+		line(histImage, 
+			cv::Point(bin_w*(*it), hist_h), 
+			cv::Point(bin_w*(*it), 100), cv::Scalar(0, 0, 255), 2, 8, 0);
+	}
+	/// Display
+	cv::namedWindow("calcHist Demo EM", CV_WINDOW_AUTOSIZE);
+	cv::imshow("calcHist Demo EM", histImage); cv::waitKey(0);
+	//////////////////////////////
+}
+
+
 bool kriging::calcHist()
 {
 	if (!m_inputImg.data)
@@ -232,8 +403,10 @@ bool kriging::calcHist()
 	float range[] = { 0, 256 };
 	const float* histRange = { range };
 	cv::Mat hist;
+	
 
 	cv::calcHist(&m_inputImg, 1, 0, cv::Mat(), hist, 1, &histSize, &histRange);
+	hist.copyTo(m_hist);
 
 	m_cumProbHist = cv::Mat(hist.rows, hist.cols, CV_32FC1);
 	m_probHist = cv::Mat(hist.rows, hist.cols, CV_32FC1);
