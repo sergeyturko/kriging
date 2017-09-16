@@ -9,14 +9,14 @@
 #define M_PI 3.141592653589793238463
 
 
-const int Population0 = 10;
-const int Population1 = 254;
+const int Population0 = 0;
+const int Population1 = 255;
 const int UnknowPopulation = 125;
 
 
 class kriging
 {
-protected:
+public:
 	unsigned char m_T0;
 	unsigned char m_T1;
 	unsigned char m_T2;
@@ -51,7 +51,8 @@ public:
 	void Kmeans(std::vector<double> t);
 	double calcmu(int s, int t);
 	void Otsu(int q);
-	void EM(int num_klass);
+	void EM(int num_klass, float rb);
+	
 	kriging(int radiusMF = 1, float threshMF = 0.6);
 
 	bool read(const cv::String& fname);
@@ -66,7 +67,7 @@ public:
 	void escapeNegativeWeights(cv::Mat& weightMatrix, const cv::Mat& krigingSystemRight) const;
 
 	//float calcEtrophy();
-	float kriging::calcKapurEtrophy(int T);
+	float calcKapurEtrophy(int T);
 	void chooseThreshold(float r);
 
 	virtual void write(const cv::String& imgName, bool test = false) = 0;
@@ -109,5 +110,16 @@ class adaptiveWindowKriging : public kriging
 	bool calcProbability() override; 
 }; //TODO
 
+
+//debug
+void showHistThresh(const cv::Mat& img, const std::vector<int> thresh);
+
+//metrics
+double calcGradientsSumMetric(const cv::Mat& img, const cv::Mat& segment);
+double correlation(const cv::Mat &image_1, const cv::Mat &image_2);
+double ICV(const cv::Mat& img, const cv::Mat& segment);
+double otsu_parametr(const cv::Mat& img, const cv::Mat& segment);
+double MSSIM(const cv::Mat& img, const cv::Mat& segment, const cv::Size& win_size = cv::Size(7, 7));
+double GVC(const cv::Mat& img, const cv::Mat& segment);
 
 #endif // KGIGING_H

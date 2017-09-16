@@ -137,6 +137,11 @@ void kriging::Kmeans(std::vector<double> t)
 	cv::waitKey(0);
 	///////////////////////////////
 
+	m_T0 = c[0];
+	m_T1 = c[1];
+	std::cout << "c_T0: " << (int)m_T0 << std::endl;
+	std::cout << "c_T1: " << (int)m_T1 << std::endl;
+
 	/*cv::Mat tmp;
 	for (int row = 0; row < m_inputImg.rows; ++row)
 	{
@@ -243,7 +248,7 @@ double NNN(double mu, double sigma, double x)
 	double exp = std::exp(-(((x - mu) * (x - mu)) / (2 * sigma * sigma))); return a * exp;
 }
 
-void kriging::EM(int num_klass)
+void kriging::EM(int num_klass, float rb)
 {
 	double E = 0.1;
 	double logSumPxn_prev = 0.0;
@@ -346,8 +351,18 @@ void kriging::EM(int num_klass)
 		logSumPxn_prev = logSumPxn;
 	} //end cicle ////////////////// 
 
-	std::vector<int> c; for (auto i : mu)
+	std::vector<int> c; 
+	for (auto i : mu)
 		c.push_back(i);
+
+	//choose threshold
+	float z0 = std::min(mu[0] + rb*sigma[0], mu[1]);
+	float z1 = std::max(mu[1] - rb*sigma[1], mu[0]);
+	m_T0 = std::min(z0, z1);
+	m_T1 = std::max(z0, z1);
+	std::cout << "c_T0: " << (int)m_T0 << std::endl;
+	std::cout << "c_T1: " << (int)m_T1 << std::endl;
+	
 
 	// Draw the histograms for B, G and R
 	int histSize = 256;
@@ -389,9 +404,11 @@ void kriging::EM(int num_klass)
 	}
 	/// Display
 	cv::namedWindow("calcHist Demo EM", CV_WINDOW_AUTOSIZE);
-	cv::imshow("calcHist Demo EM", histImage); cv::waitKey(0);
+	cv::imshow("calcHist Demo EM", histImage); 
+	cv::waitKey(0);
 	//////////////////////////////
 }
+
 
 
 bool kriging::calcHist()
@@ -434,17 +451,25 @@ bool kriging::thresholding()
 	if (!m_threshold.data)
 		return false;
 
+	cv::Mat pop0, pop1;
+	cv::Mat tmp;
+	cv::Mat a(1, 1, CV_8UC1);
+
 	unsigned char* ptr_inputImg = m_inputImg.data;
 	unsigned char* ptr_threshold = m_threshold.data;
 	for (int i = 0; i < m_numAllPixels; ++i)
 	{
 		if (m_T0 > *ptr_inputImg)
 		{
+			a.at<unsigned char>(0, 0) = *ptr_inputImg;
+			pop0.push_back(a);
 			*ptr_threshold++ = Population0;
 			++mean0;
 		}
 		else if (m_T1 < *ptr_inputImg)
 		{
+			a.at<unsigned char>(0, 0) = *ptr_inputImg;
+			pop1.push_back(a);
 			*ptr_threshold++ = Population1;
 			++mean1;
 		}
@@ -453,16 +478,23 @@ bool kriging::thresholding()
 		++ptr_inputImg;
 	}
 
-	int count0 = mean0;
+	/*int count0 = mean0;
 	int count1 = mean1;
 	mean0 = mean0 / m_numAllPixels;
 	mean1 = mean1 / m_numAllPixels;
 	m_sd0 = std::sqrtf((((1.0 - mean0) * (1.0 - mean0)) * count0) / m_numAllPixels);
-	m_sd1 = std::sqrtf((((1.0 - mean1) * (1.0 - mean1)) * count1) / m_numAllPixels);
+	m_sd1 = std::sqrtf((((1.0 - mean1) * (1.0 - mean1)) * count1) / m_numAllPixels);*/
 
 	m_threshold.copyTo(m_initialPopulation);
 	//cv::threshold(m_inputImg, m_threshold, m_T0, 0, CV_THRESH_TOZERO);
 	//cv::threshold(m_threshold, m_threshold, m_T1, 0, CV_THRESH_TRUNC);
+
+
+	cv::Scalar mean, std;
+	cv::meanStdDev(pop0, mean, std);
+	m_sd0 = std[0];
+	cv::meanStdDev(pop1, mean, std);
+	m_sd1 = std[0];
 
 	//cv::imshow("thres", m_threshold);
 	//cv::waitKey(0);
@@ -520,6 +552,10 @@ bool kriging::calcIndicator()
 			}
 		}
 	}
+
+	//cv::imshow("ind0", m_indicator0);
+	//cv::imshow("ind1", m_indicator1);
+	//cv::waitKey(0);
 	return true;
 }
 
@@ -528,69 +564,60 @@ bool kriging::majorityFilter()
 	if (!m_threshold.data || !m_initialPopulation.data)
 		return false;
 
+	cv::copyMakeBorder(m_initialPopulation, m_initialPopulation,
+		m_radiusMF, m_radiusMF, m_radiusMF, m_radiusMF, cv::BORDER_CONSTANT | cv::BORDER_ISOLATED, cv::Scalar(UnknowPopulation));
+	cv::copyMakeBorder(m_threshold, m_threshold, 
+		m_radiusMF, m_radiusMF, m_radiusMF, m_radiusMF, cv::BORDER_CONSTANT | cv::BORDER_ISOLATED, cv::Scalar(UnknowPopulation));
+	cv::copyMakeBorder(m_indicator0, m_indicator0,
+		m_radiusMF, m_radiusMF, m_radiusMF, m_radiusMF, cv::BORDER_CONSTANT | cv::BORDER_ISOLATED, cv::Scalar(0.5));
+	cv::copyMakeBorder(m_indicator1, m_indicator1,
+		m_radiusMF, m_radiusMF, m_radiusMF, m_radiusMF, cv::BORDER_CONSTANT | cv::BORDER_ISOLATED, cv::Scalar(0.5));
+
 	cv::Mat temp_thresh;
 	m_threshold.copyTo(temp_thresh);
-
 	float majortyThresh = (m_radiusMF * 2. + 1.) * (m_radiusMF * 2. + 1.) * m_threshMF;
-	int skip = m_radiusMF * m_threshold.cols;
-	unsigned char* ptr_initialPopualtion = m_initialPopulation.data + skip;
-	unsigned char* ptr_threshold = m_threshold.data + skip;
-	unsigned char* ptr_temp_thresh = temp_thresh.data + skip;
-	int limit = m_numAllPixels - skip;
-	int k = 0;
-	for (int row = m_radiusMF; row < m_threshold.rows - m_radiusMF; ++row)
-	{
-		for (int j = 0; j < m_radiusMF; ++j)
+
+	for (int row = m_radiusMF; row < temp_thresh.rows - m_radiusMF; ++row)
+	{ 
+		for (int col = m_radiusMF; col < temp_thresh.cols - m_radiusMF; ++col)
 		{
-			++ptr_initialPopualtion;
-			++ptr_threshold;
-			++ptr_temp_thresh;
-		}
-		for (int col = m_radiusMF; col < m_threshold.cols - m_radiusMF; ++col)
-		{
-			if (*ptr_initialPopualtion != UnknowPopulation)
+			if (m_initialPopulation.at<uchar>(row, col) != UnknowPopulation)
 			{
 				int countP0 = 0;
 				int countP1 = 0;
 				for (int rowKernel = -m_radiusMF; rowKernel <= m_radiusMF; ++rowKernel)
 				{
-					skip = rowKernel * m_initialPopulation.cols;
 					for (int colKernel = -m_radiusMF; colKernel <= m_radiusMF; ++colKernel)
 					{
-						unsigned char value = *(ptr_temp_thresh + skip + colKernel);
+						uchar value = temp_thresh.at<uchar>(row + rowKernel, col + colKernel);
 						if (value == Population0)
 							++countP0;
 						else if (value == Population1)
 							++countP1;
 					}
 				}
-				unsigned char value = *ptr_temp_thresh;
+				uchar value = m_threshold.at<uchar>(row, col);
 				if (countP0 > majortyThresh && value != Population0)
 				{
-					int skip_ind = skip + (row * m_radiusMF) + col;
-					*(m_indicator0.data + skip_ind) = 1.0;
-					*(m_indicator1.data + skip_ind) = 1.0;
-					*ptr_threshold = Population0;
+					m_threshold.at<uchar>(row, col) = Population0;
+					m_indicator0.at<float>(row, col) = 1.0;
+					m_indicator1.at<float>(row, col) = 1.0;
 				}
 				else if (countP1 > majortyThresh && value != Population1)
 				{
-					int skip_ind = skip + (row * m_radiusMF) + col;
-					*(m_indicator0.data + skip_ind) = 0.0;
-					*(m_indicator1.data + skip_ind) = 0.0;
-					*ptr_threshold = Population1;
+					m_threshold.at<uchar>(row, col) = Population0;
+					m_indicator0.at<float>(row, col) = 1.0;
+					m_indicator1.at<float>(row, col) = 1.0;
 				}
 			}
-			++ptr_initialPopualtion;
-			++ptr_threshold;
-			++ptr_temp_thresh;
-		}
-		for (int j = 0; j < m_radiusMF; ++j)
-		{
-			++ptr_initialPopualtion;
-			++ptr_threshold;
-			++ptr_temp_thresh;
 		}
 	}
+
+	cv::Rect rect(m_radiusMF, m_radiusMF, m_inputImg.cols, m_inputImg.rows);
+	m_initialPopulation  = m_initialPopulation(rect);
+	m_threshold = m_threshold(rect);
+	m_indicator0 = m_indicator0(rect);
+	m_indicator1 = m_indicator1(rect); 
 
 	return true;
 }
@@ -771,17 +798,31 @@ void fixedWindowKriging::setKernelIndexArray()
 	{
 		for (int col = -m_radiusKriging; col <= m_radiusKriging; ++col)							//			   00
 		{																						//		 01 02 03 04 05																	//	  11 12 13 xx .. .. ..
-			if (std::sqrt(row*row + col *col) <= m_radiusKriging && !(row == 0 && col == 0))		//		 06 07 08 09 10
+			if (std::sqrt(row*row + col *col) <= m_radiusKriging && !(row == 0 && col == 0))	//		 06 07 08 09 10
 				m_krigingKernelIndex.push_back(std::pair<int, int>(row, col));					//	  11 12 13 28 14 15 16
 		}																						//		 17 18 19 20 21
 	}																							//		 22 23 24 25 26																									//			   27
 	m_krigingKernelIndex.push_back(std::pair<int, int>(0, 0));									//			   27
 	m_numElemUnderWindow = m_krigingKernelIndex.size();
+
+
+	//create accelerate
+	for (auto it_first : m_krigingKernelIndex)
+	{
+		for (auto it_second : m_krigingKernelIndex)
+		{
+			// calc radius
+			// if radius not in set
+			// then add to set with inverse coordinate
+		}
+
+	}
 }
 
 float fixedWindowKriging::covariance(const cv::Mat seq0, const cv::Mat seq1) const
 {
-	return (cv::sum(seq0.mul(seq1 / m_numAllPixels)) - (cv::mean(seq0) * cv::mean(seq1)))[0];
+	float covar = ((cv::sum(seq0.mul(seq1)) / m_numAllPixels) - (cv::mean(seq0) * cv::mean(seq1)))[0];
+	return ((cv::sum(seq0.mul(seq1)) / m_numAllPixels) - (cv::mean(seq0) * cv::mean(seq1)))[0];
 }
 
 cv::Mat fixedWindowKriging::getKrigingSystem(const cv::Mat& sequencesMatrix, bool left_right) const
@@ -796,10 +837,10 @@ cv::Mat fixedWindowKriging::getKrigingSystem(const cv::Mat& sequencesMatrix, boo
 	if (left_right)
 	{
 		cv::Mat krigingSystemRight(m_numElemUnderWindow, 1, CV_32FC1);
-		for (int i = 0; i < system_size / 2; ++i)
+		for (int i = 0; i < system_size; ++i) // /2
 		{
 			krigingSystemRight.at<float>(i, 0) = covariance(sequencesMatrix.col(system_size), sequencesMatrix.col(i));
-			krigingSystemRight.at<float>(system_size - 1 - i, 0) = krigingSystemRight.at<float>(i, 0);
+			//krigingSystemRight.at<float>(system_size - 1 - i, 0) = krigingSystemRight.at<float>(i, 0);
 		}
 		krigingSystemRight.at<float>(system_size, 0) = 1.0;
 		return krigingSystemRight;
@@ -811,7 +852,8 @@ cv::Mat fixedWindowKriging::getKrigingSystem(const cv::Mat& sequencesMatrix, boo
 		{
 			for (int col = row; col < system_size; ++col)
 			{
-				krigingSystemLeft.at<float>(row, col) = covariance(sequencesMatrix.col(row), sequencesMatrix.col(col));
+				float val = covariance(sequencesMatrix.col(row), sequencesMatrix.col(col));
+				krigingSystemLeft.at<float>(row, col) = val;
 				krigingSystemLeft.at<float>(col, row) = krigingSystemLeft.at<float>(row, col);
 			}
 		}
@@ -928,14 +970,18 @@ bool fixedWindowKriging::calcCovarianceMatrix()
 	cv::Mat indicator0;
 	cv::Mat indicator1;
 
-	cv::copyMakeBorder(m_indicator0, indicator0, m_radiusKriging, m_radiusKriging, m_radiusKriging, m_radiusKriging, cv::BORDER_CONSTANT, cv::Scalar(0.5));
-	cv::copyMakeBorder(m_indicator1, indicator1, m_radiusKriging, m_radiusKriging, m_radiusKriging, m_radiusKriging, cv::BORDER_CONSTANT, cv::Scalar(0.5));
+	int board = m_radiusKriging;
+
+	cv::copyMakeBorder(m_indicator0, indicator0, board, board, board, board, cv::BORDER_CONSTANT | cv::BORDER_ISOLATED, cv::Scalar(0.5));
+	cv::copyMakeBorder(m_indicator1, indicator1, board, board, board, board, cv::BORDER_CONSTANT | cv::BORDER_ISOLATED, cv::Scalar(0.5));
 
 	if ((indicator0.rows != indicator1.rows) || (indicator0.cols != indicator1.cols))
 		return false;
 
-	cv::Mat sequences0(m_numAllPixels, m_numElemUnderWindow, CV_32FC1);
-	cv::Mat sequences1(m_numAllPixels, m_numElemUnderWindow, CV_32FC1);
+	//int num_pixels4sequnec = (indicator0.rows - board) * (indicator0.cols - board);
+	int num_pixels4sequnec = m_numAllPixels;
+	cv::Mat sequences0(num_pixels4sequnec, m_numElemUnderWindow, CV_32FC1);
+	cv::Mat sequences1(num_pixels4sequnec, m_numElemUnderWindow, CV_32FC1);
 	int counter = 0;
 	for (int row = m_radiusKriging; row < indicator0.rows - m_radiusKriging; ++row)
 	{
@@ -945,7 +991,9 @@ bool fixedWindowKriging::calcCovarianceMatrix()
 			for (const auto coord : m_krigingKernelIndex)
 			{
 				sequences0.at<float>(counter, i) = indicator0.at<float>(row + coord.first, col + coord.second);
-				sequences1.at<float>(counter, i++) = indicator1.at<float>(row + coord.first, col + coord.second);
+				sequences1.at<float>(counter, i) = indicator1.at<float>(row + coord.first, col + coord.second);
+				//std::cout << row << " " << col << std::endl;
+				i++;
 			}
 			++counter;
 		}
@@ -979,7 +1027,7 @@ bool fixedWindowKriging::calcProbability()
 	if (!m_krigingKernel0.data || !m_krigingKernel1.data)
 		return false;
 
-	cv::filter2D(m_indicator0, m_probabilityPopulation0, CV_32FC1, m_krigingKernel0, cv::Point(-1, -1), 0, cv::BORDER_CONSTANT);
+	cv::filter2D(m_indicator0, m_probabilityPopulation0, CV_32FC1, m_krigingKernel0); // , cv::Point(-1, -1), 0, cv::BORDER_CONSTANT);
 	cv::filter2D(m_indicator1, m_probabilityPopulation1, CV_32FC1, m_krigingKernel1);
 
 	for (int row = 0; row < m_threshold.rows; ++row)
@@ -997,5 +1045,210 @@ bool fixedWindowKriging::calcProbability()
 		}
 	}
 
+	//cv::imwrite("..//images//output//tests//beforeMF_2.png", m_threshold); //
 	return true;
+}
+
+
+
+double getMSSIM(const cv::Mat& i1, const cv::Mat& i2, const cv::Size& win_size)
+{
+	const double C1 = 6.5025, C2 = 58.5225;
+	/***************************** INITS **********************************/
+	int d = CV_64FC1;
+
+	cv::Mat I1, I2;
+	i1.convertTo(I1, d);           // cannot calculate on one byte large values
+	i2.convertTo(I2, d);
+
+	cv::Mat I2_2 = I2.mul(I2);        // I2^2
+	cv::Mat I1_2 = I1.mul(I1);        // I1^2
+	cv::Mat I1_I2 = I1.mul(I2);        // I1 * I2
+
+									   /*************************** END INITS **********************************/
+
+	cv::Mat mu1, mu2;   // PRELIMINARY COMPUTING
+	cv::blur(I1, mu1, win_size);
+	cv::blur(I1, mu2, win_size);
+	//cv::GaussianBlur(I1, mu1, cv::Size(11, 11), 1.5);
+	//cv::GaussianBlur(I2, mu2, cv::Size(11, 11), 1.5);
+
+	cv::Mat mu1_2 = mu1.mul(mu1);
+	cv::Mat mu2_2 = mu2.mul(mu2);
+	cv::Mat mu1_mu2 = mu1.mul(mu2);
+
+	cv::Mat sigma1_2, sigma2_2, sigma12;
+
+	//cv::GaussianBlur(I1_2, sigma1_2, cv::Size(11, 11), 1.5);
+	cv::blur(I1_2, sigma1_2, win_size);
+	sigma1_2 -= mu1_2;
+
+	//cv::GaussianBlur(I2_2, sigma2_2, cv::Size(11, 11), 1.5);
+	cv::blur(I2_2, sigma2_2, win_size);
+	sigma2_2 -= mu2_2;
+
+	//cv::GaussianBlur(I1_I2, sigma12, cv::Size(11, 11), 1.5);
+	cv::blur(I1_I2, sigma12, win_size);
+	sigma12 -= mu1_mu2;
+
+	///////////////////////////////// FORMULA ////////////////////////////////
+	cv::Mat t1, t2, t3;
+
+	t1 = 2 * mu1_mu2 + C1;
+	t2 = 2 * sigma12 + C2;
+	t3 = t1.mul(t2);              // t3 = ((2*mu1_mu2 + C1).*(2*sigma12 + C2))
+
+	t1 = mu1_2 + mu2_2 + C1;
+	t2 = sigma1_2 + sigma2_2 + C2;
+	t1 = t1.mul(t2);               // t1 =((mu1_2 + mu2_2 + C1).*(sigma1_2 + sigma2_2 + C2))
+
+	cv::Mat ssim_map;
+	divide(t3, t1, ssim_map);      // ssim_map =  t3./t1;
+
+	cv::Scalar mssim = cv::mean(ssim_map); // mssim = average of ssim map
+	double res = mssim[0];
+	return res;
+}
+
+
+double calcGradientsSumMetric(const cv::Mat& img, const cv::Mat& segment)
+{ // in 8UC1
+	cv::Mat imgf;
+	img.convertTo(imgf, CV_64FC1, 1. / 255.);
+
+	cv::Mat Gradient;
+	cv::Mat sbx, sby;
+	cv::Sobel(imgf, sbx, CV_64FC1, 0, 1);
+	cv::Sobel(imgf, sby, CV_64FC1, 1, 0);
+	cv::magnitude(sbx, sby, Gradient);
+
+	cv::Mat MrfGr;
+	cv::Mat kernel(3, 3, CV_8UC1, 1);
+	cv::morphologyEx(segment, MrfGr, cv::MORPH_GRADIENT, kernel);
+	MrfGr.convertTo(MrfGr, CV_64FC1, 1./255.);
+
+	cv::Mat Derive = MrfGr.mul(Gradient);
+	
+	cv::Mat Dat;
+	double min, max;
+	cv::minMaxLoc(Derive, &min, &max);
+	double thresh = 0.25 * (max - min);
+	cv::threshold(Derive, Dat, thresh, 0, cv::THRESH_TOZERO);
+	cv::threshold(Derive, Derive, thresh, 0, cv::THRESH_TOZERO);
+
+	/*cv::imshow("Gradient", Gradient);
+	cv::imshow("MrfGradient", MrfGr);
+	cv::imshow("Derive", Derive);
+	cv::imshow("DeriveAfterThresh", Dat);
+	cv::waitKey(0);*/
+
+	cv::Mat out_metric;
+	cv::pow(Derive, 2.0, out_metric);
+	cv::Scalar abs_value = cv::sum(out_metric);
+	double tmp = abs_value[0] / img.total();
+
+	return tmp;
+
+}
+
+double correlation(const cv::Mat &image_1, const cv::Mat &image_2)  
+{ // in 8UC1
+	const double L = 256.0;
+	const double k2 = 0.03;
+	const double c2 = std::pow(k2 * L, 2.0);
+	const double c3 = c2 / 2.0;
+
+	// convert data-type to "float"
+	cv::Mat im_float_1;
+	image_1.convertTo(im_float_1, CV_64F);
+	cv::Mat im_float_2;
+	image_2.convertTo(im_float_2, CV_64F);
+
+	int n_pixels = im_float_1.rows * im_float_1.cols;
+
+	// Compute mean and standard deviation of both images
+	cv::Scalar im1_Mean, im1_Std, im2_Mean, im2_Std;
+	cv::meanStdDev(im_float_1, im1_Mean, im1_Std);
+	cv::meanStdDev(im_float_2, im2_Mean, im2_Std);
+
+	// Compute covariance and correlation coefficient
+	double covar =  (im_float_1 - im1_Mean).dot(im_float_2 - im2_Mean) / n_pixels;
+	double correl = (covar + c3) / ((im1_Std[0] * im2_Std[0]) + c3);
+
+	return correl;
+}
+
+double ICV(const cv::Mat& img, const cv::Mat& segment)
+{
+	cv::Scalar img_stdDevs, img_means;
+	cv::meanStdDev(img, img_means, img_stdDevs);
+
+	cv::Scalar seg_stdDevs, seg_means;
+	cv::meanStdDev(img, seg_means, seg_stdDevs, segment);
+	int PoreCount = cv::countNonZero(segment);
+	int Total = img.total();
+
+	double VarPore = seg_stdDevs[0] * seg_stdDevs[0];
+	double VarTotal = img_stdDevs[0] * img_stdDevs[0];
+
+	double metric = ((double)PoreCount / (double)Total) * (VarPore / VarTotal);
+	return metric;
+}
+
+double otsu_parametr(const cv::Mat& img, const cv::Mat& segment)
+{
+	cv::Scalar stdDevs_1, means_1;
+	cv::meanStdDev(img, means_1, stdDevs_1, segment);
+
+	int Total = img.total();
+	int Count_1 = cv::countNonZero(segment);
+	int Count_2 = Total - Count_1;
+	double W1 = (double)Count_1 / (double)Total;
+	double W2 = (double)Count_2 / (double)Total;
+
+	cv::Mat inverse_segment;
+	cv::bitwise_not(segment, inverse_segment);
+	cv::Scalar stdDevs_2, means_2;
+	cv::meanStdDev(img, means_2, stdDevs_2, inverse_segment);
+
+	double Var_1 = stdDevs_1[0] * stdDevs_1[0];
+	double Var_2 = stdDevs_2[0] * stdDevs_2[0];
+
+	double metric = (W1 * Var_1) + (W2 * Var_2);
+	return metric;
+}
+
+double MSSIM(const cv::Mat& img, const cv::Mat& segment, const cv::Size& win_size)
+{
+	cv::Mat inverse_segment;
+	cv::bitwise_not(segment, inverse_segment);
+
+	cv::Mat rock = img.mul(segment / 255.);
+	cv::Mat background = img.mul(inverse_segment / 255.);
+	//cv::imshow("rock", rock);
+	//cv::imshow("back", background);
+	//cv::waitKey(0);
+
+	double mssim_rock = getMSSIM(rock, segment, win_size);
+	double mssim_background = getMSSIM(background, inverse_segment, win_size);
+
+	double mssim = mssim_rock * mssim_background;
+	return mssim;
+}
+
+double GVC(const cv::Mat& img, const cv::Mat& segment)
+{
+	cv::Mat inverse_segement;
+	cv::bitwise_not(segment, inverse_segement);
+
+	cv::Scalar means_1;
+	means_1 = cv::mean(img, segment);
+	cv::Scalar means_2;
+	means_2 = cv::mean(img, inverse_segement);
+
+	double diff_mean = std::abs(means_1[0] - means_2[0]);
+	double sum_mean = means_1[0] + means_2[0];
+	double gvc = diff_mean / sum_mean;
+
+	return gvc;
 }
